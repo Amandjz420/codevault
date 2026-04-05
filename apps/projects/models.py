@@ -26,6 +26,7 @@ class Project(models.Model):
     members = models.ManyToManyField(
         'accounts.User',
         through='ProjectMember',
+        through_fields=('project', 'user'),
         related_name='projects',
         blank=True,
     )
