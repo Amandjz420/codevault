@@ -78,15 +78,27 @@ class CodeParser:
 
     def _init_parser(self):
         try:
-            import tree_sitter_languages
-            from tree_sitter import Parser
-            self.py_language = tree_sitter_languages.get_language('python')
-            self.parser = Parser()
-            self.parser.set_language(self.py_language)
+            from tree_sitter_language_pack import get_language
+            from tree_sitter import Parser, Query, QueryCursor
+            self.py_language = get_language('python')
+            self.parser = Parser(self.py_language)
+            self._Query = Query
+            self._QueryCursor = QueryCursor
             self._available = True
         except Exception as e:
             logger.warning(f"[CodeParser] tree-sitter unavailable: {e}. Falling back to regex parser.")
             self._available = False
+
+    def _query_captures(self, pattern: str, node) -> list:
+        """Run a tree-sitter query and return captures as [(node, capture_name), ...]."""
+        query = self._Query(self.py_language, pattern)
+        cursor = self._QueryCursor(query)
+        captures_dict = cursor.captures(node)
+        result = []
+        for name, nodes in captures_dict.items():
+            for n in nodes:
+                result.append((n, name))
+        return result
 
     def parse_file(self, source_code: bytes, file_path: str = '') -> ParsedFile:
         """Parse a Python file and return all extracted entities."""
@@ -129,11 +141,10 @@ class CodeParser:
 
     def _extract_imports(self, tree, source: bytes) -> List[str]:
         imports = []
-        query = self.py_language.query("""
+        for node, _ in self._query_captures("""
             (import_statement) @import
             (import_from_statement) @import
-        """)
-        for node, _ in query.captures(tree.root_node):
+        """, tree.root_node):
             imports.append(node.text.decode('utf-8', errors='replace'))
         return imports
 
@@ -151,6 +162,10 @@ class CodeParser:
         body = node.child_by_field_name('body')
         if body and body.named_child_count > 0:
             first = body.named_children[0]
+            # Handle both grammar versions: bare string or expression_statement > string
+            if first.type == 'string':
+                raw = self._get_node_text(first, source)
+                return raw.strip('"\' \n')
             if first.type == 'expression_statement':
                 expr = first.named_children[0] if first.named_child_count > 0 else None
                 if expr and expr.type == 'string':
@@ -159,11 +174,10 @@ class CodeParser:
         return None
 
     def _extract_functions(self, tree, source: bytes) -> List[ParsedFunction]:
-        query = self.py_language.query("(function_definition) @func")
         results = []
         seen = set()
 
-        for node, _ in query.captures(tree.root_node):
+        for node, _ in self._query_captures("(function_definition) @func", tree.root_node):
             name_node = node.child_by_field_name('name')
             if not name_node:
                 continue
@@ -204,10 +218,9 @@ class CodeParser:
         return results
 
     def _extract_classes(self, tree, source: bytes) -> List[ParsedClass]:
-        query = self.py_language.query("(class_definition) @cls")
         results = []
 
-        for node, _ in query.captures(tree.root_node):
+        for node, _ in self._query_captures("(class_definition) @cls", tree.root_node):
             name_node = node.child_by_field_name('name')
             if not name_node:
                 continue
@@ -265,15 +278,13 @@ class CodeParser:
 
     def _extract_endpoints(self, tree, source: bytes, file_path: str) -> List[ParsedEndpoint]:
         endpoints = []
-        query = self.py_language.query("""
+        seen = set()
+        for node, capture_name in self._query_captures("""
             (call
                 function: (identifier) @func_name
                 arguments: (argument_list) @args
             ) @call
-        """)
-
-        seen = set()
-        for node, capture_name in query.captures(tree.root_node):
+        """, tree.root_node):
             if capture_name == 'func_name':
                 func_text = self._get_node_text(node, source)
                 if func_text in ('path', 're_path', 'url'):
@@ -302,7 +313,7 @@ class CodeParser:
         signals = []
 
         # Query for @receiver(...) decorators
-        query = self.py_language.query("""
+        for node, capture_name in self._query_captures("""
             (decorated_definition
                 (decorator
                     (call
@@ -314,9 +325,7 @@ class CodeParser:
                     name: (identifier) @handler_name
                 )
             ) @full
-        """)
-
-        for node, capture_name in query.captures(tree.root_node):
+        """, tree.root_node):
             if capture_name == 'dec_name':
                 dec_text = self._get_node_text(node, source)
                 if dec_text == 'receiver':

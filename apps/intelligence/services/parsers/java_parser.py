@@ -204,7 +204,7 @@ class JavaParser(BaseParser):
         # Method-level mappings
         pattern = re.compile(
             r'@(GetMapping|PostMapping|PutMapping|PatchMapping|DeleteMapping|RequestMapping)'
-            r'\s*\(\s*(?:value\s*=\s*)?(?:["\']([^"\']*)["\'])?[^)]*\)\s*'
+            r'(?:\s*\(\s*(?:value\s*=\s*)?(?:["\']([^"\']*)["\'])?[^)]*\))?\s*'
             r'(?:public\s+)?(?:\w+(?:<[^>]+>)?\s+)?(\w+)\s*\(',
             re.MULTILINE | re.DOTALL,
         )

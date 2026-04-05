@@ -15,7 +15,7 @@ EFFORT_CONFIG = {
         "graph_hops": 0,
         "models": {
             "openai": "gpt-4o-mini",
-            "google": "gemini-1.5-flash",
+            "google": "gemini-3.1-pro-preview",
             "anthropic": "claude-haiku-20240307",
         },
     },
@@ -25,7 +25,7 @@ EFFORT_CONFIG = {
         "graph_hops": 1,
         "models": {
             "openai": "gpt-4o",
-            "google": "gemini-1.5-pro",
+            "google": "gemini-3.1-pro-preview",
             "anthropic": "claude-3-5-sonnet-20241022",
         },
     },
@@ -35,7 +35,7 @@ EFFORT_CONFIG = {
         "graph_hops": 3,
         "models": {
             "openai": "gpt-4o",
-            "google": "gemini-1.5-pro",
+            "google": "gemini-3.1-pro-preview",
             "anthropic": "claude-opus-4-5",
         },
     },
