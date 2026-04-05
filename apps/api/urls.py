@@ -1,0 +1,45 @@
+from django.urls import path
+from .views import (
+    ProjectListCreateView,
+    ProjectDetailView,
+    ProjectMemberListCreateView,
+    ProjectMemberDetailView,
+    GraphStatsView,
+    GraphFilesView,
+    GraphFunctionsView,
+    GraphEndpointsView,
+    GraphModelsView,
+    QueryView,
+    IngestionJobListView,
+    TriggerIngestionView,
+    QueryLogListView,
+)
+from .webhooks import github_webhook
+
+urlpatterns = [
+    # Projects CRUD
+    path('projects/', ProjectListCreateView.as_view(), name='project-list'),
+    path('projects/<slug:slug>/', ProjectDetailView.as_view(), name='project-detail'),
+
+    # Members
+    path('projects/<slug:slug>/members/', ProjectMemberListCreateView.as_view(), name='project-member-list'),
+    path('projects/<slug:slug>/members/<int:pk>/', ProjectMemberDetailView.as_view(), name='project-member-detail'),
+
+    # Intelligence / Graph
+    path('projects/<slug:slug>/stats/', GraphStatsView.as_view(), name='project-stats'),
+    path('projects/<slug:slug>/files/', GraphFilesView.as_view(), name='project-files'),
+    path('projects/<slug:slug>/functions/', GraphFunctionsView.as_view(), name='project-functions'),
+    path('projects/<slug:slug>/endpoints/', GraphEndpointsView.as_view(), name='project-endpoints'),
+    path('projects/<slug:slug>/models/', GraphModelsView.as_view(), name='project-models'),
+
+    # Query
+    path('projects/<slug:slug>/query/', QueryView.as_view(), name='project-query'),
+    path('projects/<slug:slug>/query-logs/', QueryLogListView.as_view(), name='project-query-logs'),
+
+    # Ingestion
+    path('projects/<slug:slug>/ingest/', TriggerIngestionView.as_view(), name='project-ingest'),
+    path('projects/<slug:slug>/jobs/', IngestionJobListView.as_view(), name='project-jobs'),
+
+    # Webhooks
+    path('webhooks/github/<slug:project_slug>/', github_webhook, name='github-webhook'),
+]
