@@ -275,9 +275,9 @@ class GraphService:
     def search_functions(self, query: str) -> list:
         return self.query_graph("""
             MATCH (fn:Function {namespace: $ns})
-            WHERE toLower(fn.name) CONTAINS toLower($query)
-               OR toLower(fn.docstring) CONTAINS toLower($query)
-               OR toLower(coalesce(fn.parent_class, '')) CONTAINS toLower($query)
+            WHERE toLower(fn.name) CONTAINS toLower($term)
+               OR toLower(fn.docstring) CONTAINS toLower($term)
+               OR toLower(coalesce(fn.parent_class, '')) CONTAINS toLower($term)
             RETURN fn.name AS name,
                    fn.file_path AS file,
                    fn.start_line AS line,
@@ -287,7 +287,22 @@ class GraphService:
                    fn.code AS code,
                    fn.docstring AS docstring
             LIMIT 20
-        """, {'ns': self.namespace, 'query': query})
+        """, {'ns': self.namespace, 'term': query})
+
+    def search_classes(self, query: str) -> list:
+        return self.query_graph("""
+            MATCH (c:Class {namespace: $ns})
+            WHERE toLower(c.name) CONTAINS toLower($term)
+               OR toLower(coalesce(c.docstring, '')) CONTAINS toLower($term)
+               OR ANY(b IN c.bases WHERE toLower(b) CONTAINS toLower($term))
+            RETURN c.name AS name,
+                   c.file_path AS file,
+                   c.start_line AS line,
+                   c.bases AS bases,
+                   c.is_django_model AS is_django_model,
+                   c.docstring AS docstring
+            LIMIT 20
+        """, {'ns': self.namespace, 'term': query})
 
     def get_function_context(self, function_name: str) -> dict:
         """Full context: which endpoint triggers it, which signals it handles."""

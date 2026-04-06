@@ -140,13 +140,18 @@ class MCPHttpView(View):
         from apps.intelligence.models import IndexedFile
 
         if tool_name == 'search_codebase':
+            from apps.intelligence.services.hybrid_search import HybridSearchService
+            graph = GraphService(project.neo4j_namespace)
             vector = VectorService(project.chroma_collection)
+            hybrid = HybridSearchService(graph, vector)
             filter_type = args.get('type_filter', 'any')
-            return vector.search(
+            result = hybrid.search(
                 args.get('query', ''),
                 n_results=args.get('limit', 10),
                 filter_type=filter_type if filter_type != 'any' else None,
             )
+            graph.close()
+            return result
 
         elif tool_name == 'get_function':
             graph = GraphService(project.neo4j_namespace)

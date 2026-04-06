@@ -10,9 +10,11 @@ logger = logging.getLogger(__name__)
 
 EFFORT_CONFIG = {
     "low": {
-        "description": "Fast semantic search only. No graph traversal.",
+        "description": "Fast hybrid search only. No graph traversal.",
         "vector_results": 5,
         "graph_hops": 0,
+        "keyword_weight": 0.5,
+        "semantic_weight": 0.5,
         "models": {
             "openai": "gpt-4o-mini",
             "google": "gemini-3.1-pro-preview",
@@ -20,9 +22,11 @@ EFFORT_CONFIG = {
         },
     },
     "medium": {
-        "description": "Semantic search + 1-hop graph expansion.",
+        "description": "Hybrid search + 1-hop graph expansion.",
         "vector_results": 8,
         "graph_hops": 1,
+        "keyword_weight": 0.6,
+        "semantic_weight": 0.4,
         "models": {
             "openai": "gpt-4o",
             "google": "gemini-3.1-pro-preview",
@@ -33,6 +37,8 @@ EFFORT_CONFIG = {
         "description": "Full graph traversal + multi-hop reasoning + code synthesis.",
         "vector_results": 15,
         "graph_hops": 3,
+        "keyword_weight": 0.7,
+        "semantic_weight": 0.3,
         "models": {
             "openai": "gpt-4o",
             "google": "gemini-3.1-pro-preview",
@@ -57,16 +63,20 @@ class LLMQueryService:
     """Answers natural-language questions about a codebase."""
 
     def __init__(self, graph_service, vector_service):
+        from apps.intelligence.services.hybrid_search import HybridSearchService
         self.graph = graph_service
         self.vector = vector_service
+        self.hybrid = HybridSearchService(graph_service, vector_service)
         self.provider = get_llm_provider()
 
     def query(self, question: str, effort: str = 'medium') -> dict:
         start = time.time()
         config = EFFORT_CONFIG.get(effort, EFFORT_CONFIG['medium'])
 
-        # 1. Vector search
-        vector_hits = self.vector.search(question, n_results=config['vector_results'])
+        # 1. Hybrid search (keyword + semantic)
+        self.hybrid.keyword_weight = config.get('keyword_weight', 0.6)
+        self.hybrid.semantic_weight = config.get('semantic_weight', 0.4)
+        vector_hits = self.hybrid.search(question, n_results=config['vector_results'])
 
         # 2. Graph expansion
         graph_context = []
@@ -112,7 +122,7 @@ class LLMQueryService:
             "",
             f"Question: {question}",
             "",
-            "=== Relevant Code Snippets (semantic search) ===",
+            "=== Relevant Code Snippets (hybrid keyword + semantic search) ===",
         ]
 
         for i, hit in enumerate(vector_hits[:8], 1):
