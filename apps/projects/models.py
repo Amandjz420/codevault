@@ -123,7 +123,7 @@ class Project(models.Model):
         except ProjectMember.DoesNotExist:
             return False
 
-    def hard_delete(self):
+    def hard_delete(self, *args, **kwargs):
         """Hard delete project and clean up all related data."""
         # Clean Neo4j graph nodes
         try:
