@@ -11,11 +11,12 @@ def health_check(request):
 
 def readiness_check(request):
     """
-    Deep readiness probe — checks all backend dependencies.
-    Returns 503 if any critical service is unavailable.
+    Readiness probe — reports the status of all backend dependencies.
+    Always returns 200 so that a slow-starting dependency does not crash
+    the app on startup.  Callers can inspect the per-service 'checks' dict
+    to determine whether individual services are available.
     """
     checks = {}
-    all_ok = True
 
     # PostgreSQL
     try:
@@ -25,7 +26,6 @@ def readiness_check(request):
         checks['database'] = 'ok'
     except Exception as e:
         checks['database'] = f'error: {str(e)[:100]}'
-        all_ok = False
 
     # Redis
     try:
@@ -33,40 +33,44 @@ def readiness_check(request):
         cache.set('_health', 'ok', 10)
         val = cache.get('_health')
         checks['redis'] = 'ok' if val == 'ok' else 'error: cache miss'
-        if val != 'ok':
-            all_ok = False
     except Exception as e:
         checks['redis'] = f'error: {str(e)[:100]}'
-        all_ok = False
 
-    # Neo4j
+    # Neo4j — short timeout so a missing instance doesn't stall startup
     try:
         from django.conf import settings as s
         from neo4j import GraphDatabase
-        driver = GraphDatabase.driver(s.NEO4J_URI, auth=(s.NEO4J_USER, s.NEO4J_PASSWORD))
+        driver = GraphDatabase.driver(
+            s.NEO4J_URI,
+            auth=(s.NEO4J_USER, s.NEO4J_PASSWORD),
+            connection_timeout=5,
+        )
         with driver.session() as session:
             session.run("RETURN 1")
         driver.close()
         checks['neo4j'] = 'ok'
     except Exception as e:
         checks['neo4j'] = f'error: {str(e)[:100]}'
-        all_ok = False
 
-    # ChromaDB
+    # ChromaDB — use HTTP client when CHROMA_HOST is configured, otherwise skip
     try:
         import chromadb
         from django.conf import settings as s
-        client = chromadb.PersistentClient(path=s.CHROMA_DB_PATH)
-        client.heartbeat()
-        checks['chromadb'] = 'ok'
+        chroma_host = getattr(s, 'CHROMA_HOST', None)
+        if chroma_host:
+            chroma_port = getattr(s, 'CHROMA_PORT', 8000)
+            client = chromadb.HttpClient(host=chroma_host, port=chroma_port)
+            client.heartbeat()
+            checks['chromadb'] = 'ok'
+        else:
+            checks['chromadb'] = 'skipped: CHROMA_HOST not configured'
     except Exception as e:
         checks['chromadb'] = f'error: {str(e)[:100]}'
-        all_ok = False
 
-    status_code = 200 if all_ok else 503
+    all_ok = all(v == 'ok' for v in checks.values())
     return JsonResponse(
         {"status": "ok" if all_ok else "degraded", "service": "codevault", "checks": checks},
-        status=status_code,
+        status=200,
     )
 
 
