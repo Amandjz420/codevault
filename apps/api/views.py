@@ -502,3 +502,140 @@ class QueryLogListView(APIView):
             return err
         logs = QueryLog.objects.filter(project=project).order_by('-created_at')[:100]
         return Response(QueryLogSerializer(logs, many=True).data)
+
+
+# ------------------------------------------------------------------ #
+#  GitHub Integration                                                  #
+# ------------------------------------------------------------------ #
+
+class ListGithubReposView(APIView):
+    """
+    GET /api/github/repos/
+    Returns the authenticated user's GitHub repos (up to 100, sorted by
+    last push). Requires the user to have connected their GitHub account.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        import requests as http_requests
+
+        token = request.user.github_access_token
+        if not token:
+            return Response(
+                {'error': 'GitHub account not connected. Visit /api/auth/github/ first.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        page = int(request.query_params.get('page', 1))
+        try:
+            resp = http_requests.get(
+                'https://api.github.com/user/repos',
+                headers={
+                    'Authorization': f'token {token}',
+                    'Accept': 'application/vnd.github.v3+json',
+                },
+                params={
+                    'sort': 'pushed',
+                    'per_page': 50,
+                    'page': page,
+                    'affiliation': 'owner,collaborator,organization_member',
+                },
+                timeout=15,
+            )
+        except Exception as e:
+            logger.error(f"[ListGithubReposView] {e}")
+            return Response({'error': 'Failed to reach GitHub API.'}, status=status.HTTP_502_BAD_GATEWAY)
+
+        if resp.status_code == 401:
+            return Response(
+                {'error': 'GitHub token is invalid or expired. Reconnect via /api/auth/github/.'},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        if resp.status_code != 200:
+            return Response({'error': 'GitHub API error.'}, status=status.HTTP_502_BAD_GATEWAY)
+
+        repos = [
+            {
+                'full_name': r['full_name'],
+                'name': r['name'],
+                'description': r.get('description', ''),
+                'private': r['private'],
+                'default_branch': r['default_branch'],
+                'html_url': r['html_url'],
+                'pushed_at': r.get('pushed_at'),
+                'language': r.get('language'),
+            }
+            for r in resp.json()
+        ]
+        return Response({'repos': repos, 'page': page})
+
+
+class TriggerGithubIngestionView(APIView):
+    """
+    POST /api/projects/<slug>/ingest/github/
+    Queues a full GitHub repo ingestion for the project.
+    The project must have github_repo set (owner/repo).
+    The calling user must have their GitHub account connected.
+    Body (optional): {"branch": "main", "clear": false}
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, slug):
+        project, err = get_project_write_or_403(slug, request.user)
+        if err:
+            return err
+
+        if not request.user.github_access_token:
+            return Response(
+                {'error': 'GitHub account not connected. Visit /api/auth/github/ first.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        github_repo = request.data.get('github_repo') or project.github_repo
+        if not github_repo:
+            return Response(
+                {'error': 'No GitHub repo configured. Provide github_repo (owner/repo) in the request body or set it on the project.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        branch = request.data.get('branch') or project.github_default_branch or 'main'
+        clear = request.data.get('clear', False)
+
+        # Persist repo/branch on the project if provided
+        update_fields = []
+        if github_repo != project.github_repo:
+            project.github_repo = github_repo
+            update_fields.append('github_repo')
+        if branch != project.github_default_branch:
+            project.github_default_branch = branch
+            update_fields.append('github_default_branch')
+        if update_fields:
+            project.save(update_fields=update_fields)
+
+        if clear:
+            try:
+                from apps.intelligence.services.graph import GraphService
+                from apps.intelligence.services.vector import VectorService
+                graph = GraphService(project.neo4j_namespace)
+                vector = VectorService(project.chroma_collection)
+                graph.clear_project()
+                vector.delete_collection()
+                graph.close()
+                project.indexed_files.all().delete()
+            except Exception as e:
+                logger.warning(f"[TriggerGithubIngestion] Clear error: {e}")
+
+        from apps.intelligence.tasks import run_github_ingestion
+        task = run_github_ingestion.delay(project.id, request.user.id)
+
+        logger.info(
+            f"[TriggerGithubIngestion] Queued for {project.name} "
+            f"repo={github_repo} branch={branch} task={task.id}"
+        )
+
+        return Response({
+            'message': 'GitHub ingestion queued.',
+            'task_id': str(task.id),
+            'github_repo': github_repo,
+            'branch': branch,
+        }, status=status.HTTP_202_ACCEPTED)

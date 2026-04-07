@@ -30,6 +30,11 @@ class User(AbstractUser):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    # GitHub OAuth
+    github_id = models.CharField(max_length=50, blank=True)
+    github_username = models.CharField(max_length=100, blank=True)
+    github_access_token = models.TextField(blank=True)
+
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = []
 

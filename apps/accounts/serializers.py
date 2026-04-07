@@ -45,8 +45,8 @@ class LoginSerializer(serializers.Serializer):
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ('id', 'email', 'name', 'created_at', 'updated_at', 'is_active')
-        read_only_fields = ('id', 'email', 'created_at', 'updated_at', 'is_active')
+        fields = ('id', 'email', 'name', 'github_username', 'created_at', 'updated_at', 'is_active')
+        read_only_fields = ('id', 'email', 'github_username', 'created_at', 'updated_at', 'is_active')
 
 
 class UserUpdateSerializer(serializers.ModelSerializer):

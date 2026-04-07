@@ -59,6 +59,65 @@ def run_local_ingestion(self, project_id: int, path: str):
         raise self.retry(exc=exc)
 
 
+@shared_task(bind=True, max_retries=3, default_retry_delay=30)
+def run_github_ingestion(self, project_id: int, triggered_by_user_id: int):
+    """
+    Celery task: full ingestion of a GitHub repo.
+    Clones the repo using the triggering user's GitHub access token,
+    runs the full pipeline, then cleans up.
+    """
+    from apps.projects.models import Project
+    from apps.accounts.models import User
+    from apps.intelligence.models import IngestionJob
+    from apps.intelligence.services.ingestion import IngestionOrchestrator
+
+    project = Project.objects.get(id=project_id)
+    user = User.objects.get(id=triggered_by_user_id)
+
+    if not project.github_repo:
+        raise ValueError(f"Project {project.slug} has no github_repo configured.")
+    if not user.github_access_token:
+        raise ValueError(f"User {user.email} has no GitHub access token. Connect GitHub first.")
+
+    job = IngestionJob.objects.create(
+        project=project,
+        trigger='github',
+        status='running',
+        celery_task_id=self.request.id or '',
+    )
+
+    try:
+        orchestrator = IngestionOrchestrator(project)
+        stats = orchestrator.ingest_github_repo(
+            repo=project.github_repo,
+            github_token=user.github_access_token,
+            branch=project.github_default_branch or 'main',
+            job=job,
+        )
+        orchestrator.close()
+
+        job.status = 'completed'
+        job.completed_at = timezone.now()
+        job.files_processed = stats.get('processed', 0) + stats.get('skipped', 0)
+        job.files_total = stats.get('total', job.files_total)
+        job.save()
+
+        project.last_indexed_at = timezone.now()
+        project.save(update_fields=['last_indexed_at'])
+
+        logger.info(f"[Task] GitHub ingestion complete for {project.name}: {stats}")
+        refresh_memory_on_ingestion.delay(project.id, [], stats)
+        return stats
+
+    except Exception as exc:
+        job.status = 'failed'
+        job.error_message = str(exc)
+        job.completed_at = timezone.now()
+        job.save()
+        logger.error(f"[Task] GitHub ingestion failed for {project.name}: {exc}")
+        raise self.retry(exc=exc)
+
+
 @shared_task(bind=True, max_retries=2, default_retry_delay=15)
 def run_webhook_ingestion(
     self,
@@ -84,6 +143,9 @@ def run_webhook_ingestion(
         celery_task_id=self.request.id or '',
     )
 
+    # Use the project owner's GitHub token for fetching file content via API
+    github_token = project.owner.github_access_token if hasattr(project, 'owner') else ''
+
     try:
         orchestrator = IngestionOrchestrator(project)
         stats = orchestrator.ingest_changed_files(
@@ -91,6 +153,7 @@ def run_webhook_ingestion(
             deleted_files=deleted_files,
             root_path=project.local_path or '',
             commit_sha=commit_sha,
+            github_token=github_token,
         )
         orchestrator.close()
 

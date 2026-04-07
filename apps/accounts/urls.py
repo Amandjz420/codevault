@@ -8,6 +8,9 @@ from .views import (
     ChangePasswordView,
     APITokenView,
     APITokenDetailView,
+    GitHubOAuthInitView,
+    GitHubOAuthCallbackView,
+    GitHubDisconnectView,
 )
 
 urlpatterns = [
@@ -19,4 +22,8 @@ urlpatterns = [
     path('change-password/', ChangePasswordView.as_view(), name='auth-change-password'),
     path('tokens/', APITokenView.as_view(), name='auth-tokens'),
     path('tokens/<int:pk>/', APITokenDetailView.as_view(), name='auth-token-detail'),
+    # GitHub OAuth
+    path('github/', GitHubOAuthInitView.as_view(), name='auth-github-init'),
+    path('github/callback/', GitHubOAuthCallbackView.as_view(), name='auth-github-callback'),
+    path('github/disconnect/', GitHubDisconnectView.as_view(), name='auth-github-disconnect'),
 ]

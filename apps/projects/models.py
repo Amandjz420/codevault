@@ -31,6 +31,12 @@ class Project(models.Model):
         blank=True,
     )
     repo_url = models.URLField(blank=True, help_text='GitHub/GitLab repository URL')
+    github_repo = models.CharField(
+        max_length=200,
+        blank=True,
+        help_text='GitHub repo in owner/repo format, e.g. acme/my-service',
+    )
+    github_default_branch = models.CharField(max_length=100, default='main')
     github_webhook_secret = models.CharField(
         max_length=255,
         blank=True,

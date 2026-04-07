@@ -1,3 +1,7 @@
+import secrets
+import requests as http_requests
+from django.conf import settings
+from django.core.cache import cache
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -171,3 +175,125 @@ class APITokenDetailView(APIView):
         token.is_active = False
         token.save(update_fields=['is_active'])
         return Response({'message': 'Token revoked.'}, status=status.HTTP_200_OK)
+
+
+# ------------------------------------------------------------------ #
+#  GitHub OAuth                                                        #
+# ------------------------------------------------------------------ #
+
+_GITHUB_AUTH_URL = 'https://github.com/login/oauth/authorize'
+_GITHUB_TOKEN_URL = 'https://github.com/login/oauth/access_token'
+_GITHUB_USER_URL = 'https://api.github.com/user'
+_STATE_TTL = 600  # 10 minutes
+
+
+class GitHubOAuthInitView(APIView):
+    """
+    GET /api/auth/github/
+    Returns the GitHub OAuth authorization URL. The caller (frontend/CLI)
+    should redirect the user there. A short-lived CSRF state token is stored
+    in cache and must be echoed back via the callback.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if not settings.GITHUB_CLIENT_ID:
+            return Response(
+                {'error': 'GitHub OAuth is not configured on this server.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        state = secrets.token_urlsafe(24)
+        # Bind state to user so the callback can find them
+        cache.set(f'github_oauth_state:{state}', request.user.pk, _STATE_TTL)
+
+        params = (
+            f'client_id={settings.GITHUB_CLIENT_ID}'
+            f'&redirect_uri={settings.GITHUB_REDIRECT_URI}'
+            f'&scope=repo,read:user'
+            f'&state={state}'
+        )
+        return Response({'authorization_url': f'{_GITHUB_AUTH_URL}?{params}'})
+
+
+class GitHubOAuthCallbackView(APIView):
+    """
+    GET /api/auth/github/callback/?code=<code>&state=<state>
+    Exchange the temporary code for an access token, store it on the user,
+    and return fresh JWT tokens.
+    Called by GitHub after the user authorizes the OAuth App.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        code = request.query_params.get('code')
+        state = request.query_params.get('state')
+
+        if not code or not state:
+            return Response({'error': 'Missing code or state.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        user_id = cache.get(f'github_oauth_state:{state}')
+        if not user_id:
+            return Response({'error': 'Invalid or expired state.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        cache.delete(f'github_oauth_state:{state}')
+
+        # Exchange code for access token
+        token_resp = http_requests.post(
+            _GITHUB_TOKEN_URL,
+            json={
+                'client_id': settings.GITHUB_CLIENT_ID,
+                'client_secret': settings.GITHUB_CLIENT_SECRET,
+                'code': code,
+                'redirect_uri': settings.GITHUB_REDIRECT_URI,
+            },
+            headers={'Accept': 'application/json'},
+            timeout=10,
+        )
+
+        if token_resp.status_code != 200:
+            return Response({'error': 'Failed to exchange code with GitHub.'}, status=status.HTTP_502_BAD_GATEWAY)
+
+        token_data = token_resp.json()
+        access_token = token_data.get('access_token')
+        if not access_token:
+            error = token_data.get('error_description', 'No access token returned.')
+            return Response({'error': error}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Fetch GitHub user profile
+        user_resp = http_requests.get(
+            _GITHUB_USER_URL,
+            headers={'Authorization': f'token {access_token}', 'Accept': 'application/json'},
+            timeout=10,
+        )
+        if user_resp.status_code != 200:
+            return Response({'error': 'Failed to fetch GitHub user profile.'}, status=status.HTTP_502_BAD_GATEWAY)
+
+        gh_profile = user_resp.json()
+
+        # Update user record
+        user = User.objects.get(pk=user_id)
+        user.github_id = str(gh_profile.get('id', ''))
+        user.github_username = gh_profile.get('login', '')
+        user.github_access_token = access_token
+        user.save(update_fields=['github_id', 'github_username', 'github_access_token'])
+
+        tokens = get_tokens_for_user(user)
+        return Response({
+            'message': 'GitHub account connected.',
+            'github_username': user.github_username,
+            'access': tokens['access'],
+            'refresh': tokens['refresh'],
+        })
+
+
+class GitHubDisconnectView(APIView):
+    """POST /api/auth/github/disconnect/ — Unlink GitHub from this account."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        request.user.github_id = ''
+        request.user.github_username = ''
+        request.user.github_access_token = ''
+        request.user.save(update_fields=['github_id', 'github_username', 'github_access_token'])
+        return Response({'message': 'GitHub account disconnected.'})

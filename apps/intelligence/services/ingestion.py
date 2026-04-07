@@ -1,11 +1,16 @@
 """
 Ingestion orchestrator — coordinates parser, graph, and vector services.
 """
+import base64
 import hashlib
 import logging
 import os
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 from django.conf import settings
+import requests as http_requests
 from apps.intelligence.services.parsers import get_parser_for_file, SUPPORTED_EXTENSIONS
 
 logger = logging.getLogger(__name__)
@@ -114,21 +119,66 @@ class IngestionOrchestrator:
 
         return stats
 
+    def ingest_github_repo(
+        self,
+        repo: str,
+        github_token: str,
+        branch: str = 'main',
+        job=None,
+    ) -> dict:
+        """
+        Clone a GitHub repo to a temp directory and run a full local ingestion.
+        Cleans up the temp directory afterwards regardless of success/failure.
+
+        :param repo: 'owner/repo' string
+        :param github_token: user's GitHub OAuth access token
+        :param branch: branch to clone (default: 'main')
+        :param job: optional IngestionJob ORM record for progress tracking
+        """
+        clone_url = f'https://x-access-token:{github_token}@github.com/{repo}.git'
+        tmp_dir = tempfile.mkdtemp(prefix='codevault_gh_')
+        logger.info(f"[Ingestion] Cloning {repo}@{branch} into {tmp_dir}")
+
+        try:
+            result = subprocess.run(
+                ['git', 'clone', '--depth=1', '--branch', branch, clone_url, tmp_dir],
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+            if result.returncode != 0:
+                # Sanitize token from error output before logging
+                safe_err = result.stderr.replace(github_token, '***')
+                raise RuntimeError(f"git clone failed: {safe_err}")
+
+            logger.info(f"[Ingestion] Clone complete, starting ingestion for {repo}")
+            return self.ingest_local(tmp_dir, job=job)
+
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
     def ingest_changed_files(
         self,
         changed_files: list,
         deleted_files: list,
         root_path: str = '',
         commit_sha: str = '',
+        github_token: str = '',
     ) -> dict:
         """
         Incremental ingestion for GitHub webhook events.
         Processes only changed/added code files (all supported languages).
+
+        File content is sourced from (in priority order):
+          1. Local filesystem (root_path)
+          2. GitHub Contents API (github_token + project.github_repo)
         """
         from apps.intelligence.models import IndexedFile
-        from django.utils import timezone
 
         stats = {"processed": 0, "deleted": 0, "errors": 0}
+
+        # Resolve GitHub repo slug for API fetching
+        github_repo = getattr(self.project, 'github_repo', '')
 
         # Handle deletions
         for file_path in deleted_files:
@@ -154,25 +204,56 @@ class IngestionOrchestrator:
             if any(skip in file_path.split('/') for skip in SKIP_DIRS):
                 continue
 
-            # If we have a local path, read the file content
+            content = None
+
+            # 1. Try local filesystem
             if root_path:
                 full_path = Path(root_path) / file_path
                 if full_path.exists():
                     try:
                         with open(full_path, 'rb') as fh:
                             content = fh.read()
-                        file_hash = get_file_hash(content)
-                        existing = IndexedFile.objects.filter(
-                            project=self.project, file_path=file_path
-                        ).first()
-                        self._process_file(file_path, content, file_hash, existing)
-                        stats['processed'] += 1
                     except Exception as e:
-                        logger.error(f"[Ingestion] Error processing {file_path}: {e}")
-                        stats['errors'] += 1
-            else:
-                # No local path — just increment counter (real impl would fetch from GitHub API)
+                        logger.warning(f"[Ingestion] Could not read local file {file_path}: {e}")
+
+            # 2. Fall back to GitHub Contents API
+            if content is None and github_token and github_repo:
+                ref = commit_sha or 'HEAD'
+                api_url = f'https://api.github.com/repos/{github_repo}/contents/{file_path}?ref={ref}'
+                try:
+                    resp = http_requests.get(
+                        api_url,
+                        headers={
+                            'Authorization': f'token {github_token}',
+                            'Accept': 'application/vnd.github.v3+json',
+                        },
+                        timeout=15,
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        content = base64.b64decode(data['content'])
+                    else:
+                        logger.warning(
+                            f"[Ingestion] GitHub API returned {resp.status_code} for {file_path}"
+                        )
+                except Exception as e:
+                    logger.error(f"[Ingestion] GitHub API fetch failed for {file_path}: {e}")
+
+            if content is None:
+                logger.warning(f"[Ingestion] Skipping {file_path} — could not obtain content")
+                stats['errors'] += 1
+                continue
+
+            try:
+                file_hash = get_file_hash(content)
+                existing = IndexedFile.objects.filter(
+                    project=self.project, file_path=file_path
+                ).first()
+                self._process_file(file_path, content, file_hash, existing)
                 stats['processed'] += 1
+            except Exception as e:
+                logger.error(f"[Ingestion] Error processing {file_path}: {e}")
+                stats['errors'] += 1
 
         return stats
 
