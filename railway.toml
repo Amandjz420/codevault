@@ -3,7 +3,7 @@ builder = "dockerfile"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "python manage.py migrate --noinput && gunicorn codevault.asgi:application --bind 0.0.0.0:$PORT --workers 2 --worker-class uvicorn.workers.UvicornWorker --timeout 120"
+startCommand = "python manage.py migrate --noinput && python manage.py collectstatic --noinput && gunicorn codevault.asgi:application --bind 0.0.0.0:$PORT --workers 2 --worker-class uvicorn.workers.UvicornWorker --timeout 120"
 healthcheckPath = "/health/"
 healthcheckTimeout = 300
 restartPolicyType = "on_failure"

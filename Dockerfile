@@ -21,8 +21,12 @@ COPY . .
 # Create directories for static files and ChromaDB data
 RUN mkdir -p /app/staticfiles /app/chroma_db_data /app/media
 
-# Collect static files (will fail gracefully if DB not available)
-RUN python manage.py collectstatic --noinput --no-input 2>/dev/null || true
+# Collect static files at build time so they are baked into the image.
+# A dummy SECRET_KEY is provided so Django can initialise without real env vars.
+# DATABASE_URL is pointed at a dummy value; collectstatic never touches the DB.
+RUN SECRET_KEY=build-time-static-collection-only \
+    DATABASE_URL=sqlite:////tmp/build.db \
+    python manage.py collectstatic --noinput
 
 EXPOSE 8000
 
