@@ -342,6 +342,7 @@ class IngestionOrchestrator:
         """Parse a single file and store it in graph + vector + ORM."""
         from apps.intelligence.models import IndexedFile
         from django.utils import timezone
+        from apps.intelligence.services.description import enrich_parsed_file
 
         # Try language-specific parser first
         lang_parser = get_parser_for_file(rel_path)
@@ -350,6 +351,12 @@ class IngestionOrchestrator:
         else:
             # Fallback to Python parser for .py files
             parsed = self.parser.parse_file(content, rel_path)
+
+        # Generate AI descriptions for all entities (fills parsed.*.description)
+        try:
+            enrich_parsed_file(parsed, rel_path)
+        except Exception as e:
+            logger.warning(f"[Ingestion] Description generation failed for {rel_path}: {e}")
 
         # Clear and re-ingest in graph + vector
         self.graph.delete_file(rel_path)

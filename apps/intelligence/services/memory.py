@@ -75,7 +75,7 @@ def _call_llm(prompt: str) -> str:
             import google.generativeai as genai
             genai.configure(api_key=settings.GOOGLE_API_KEY)
             m = genai.GenerativeModel(
-                'gemini-3.1-flash-lite',
+                'gemini-3.1-flash-lite-preview',
                 system_instruction=_SUMMARY_SYSTEM_PROMPT,
             )
             resp = m.generate_content(prompt)

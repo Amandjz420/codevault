@@ -73,7 +73,9 @@ class VectorService:
             doc = f"Function: {func.name}\n"
             if func.parent_class:
                 doc += f"Class: {func.parent_class}\n"
-            if func.docstring:
+            if func.description:
+                doc += f"Description: {func.description}\n"
+            elif func.docstring:
                 doc += f"Docstring: {func.docstring}\n"
             if func.decorators:
                 doc += f"Decorators: {', '.join(func.decorators)}\n"
@@ -97,7 +99,9 @@ class VectorService:
             doc = f"Class: {cls.name}\n"
             if cls.bases:
                 doc += f"Bases: {', '.join(cls.bases)}\n"
-            if cls.docstring:
+            if cls.description:
+                doc += f"Description: {cls.description}\n"
+            elif cls.docstring:
                 doc += f"Docstring: {cls.docstring}\n"
             if cls.is_django_model:
                 doc += "Type: Django ORM Model\n"

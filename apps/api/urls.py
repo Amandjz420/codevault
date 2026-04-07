@@ -9,6 +9,7 @@ from .views import (
     GraphFunctionsView,
     GraphEndpointsView,
     GraphModelsView,
+    GraphClassesView,
     QueryView,
     IngestionJobListView,
     TriggerIngestionView,
@@ -34,6 +35,7 @@ urlpatterns = [
     path('projects/<slug:slug>/functions/', GraphFunctionsView.as_view(), name='project-functions'),
     path('projects/<slug:slug>/endpoints/', GraphEndpointsView.as_view(), name='project-endpoints'),
     path('projects/<slug:slug>/models/', GraphModelsView.as_view(), name='project-models'),
+    path('projects/<slug:slug>/classes/', GraphClassesView.as_view(), name='project-classes'),
 
     # Query
     path('projects/<slug:slug>/query/', QueryView.as_view(), name='project-query'),

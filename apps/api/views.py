@@ -117,9 +117,32 @@ class ProjectDetailView(APIView):
                 {'error': 'Only the owner can delete a project.'},
                 status=status.HTTP_403_FORBIDDEN,
             )
+
+        # Clean Neo4j graph nodes
+        try:
+            from apps.intelligence.services.graph import GraphService
+            graph = GraphService(project.neo4j_namespace)
+            graph.clear_project()
+            graph.close()
+        except Exception as e:
+            logger.warning(f"[ProjectDelete] Neo4j cleanup failed for {slug}: {e}")
+
+        # Clean ChromaDB collection
+        try:
+            from apps.intelligence.services.vector import VectorService
+            vector = VectorService(project.chroma_collection)
+            vector.delete_collection()
+        except Exception as e:
+            logger.warning(f"[ProjectDelete] ChromaDB cleanup failed for {slug}: {e}")
+
+        # Clean Postgres records (IndexedFile, IngestionJob, QueryLog, ProjectMemory)
+        project.indexed_files.all().delete()
+
+        # Soft-delete the project row itself
         project.is_active = False
         project.save(update_fields=['is_active'])
-        return Response({'message': 'Project deleted.'}, status=status.HTTP_204_NO_CONTENT)
+
+        return Response({'message': 'Project and all its data deleted.'}, status=status.HTTP_204_NO_CONTENT)
 
 
 # ------------------------------------------------------------------ #
@@ -257,7 +280,14 @@ class GraphFilesView(APIView):
 
 
 class GraphFunctionsView(APIView):
-    """GET /api/projects/<slug>/functions/?search=<query>&name=<exact>"""
+    """
+    GET /api/projects/<slug>/functions/
+
+    Query params:
+      search=<str>   — filter by name / docstring / parent class (default: all)
+      name=<str>     — exact name lookup, returns full context incl. endpoints + signals
+      limit=<int>    — max results for search (default 20, max 100)
+    """
     permission_classes = [IsAuthenticated]
 
     def get(self, request, slug):
@@ -267,15 +297,16 @@ class GraphFunctionsView(APIView):
 
         search = request.query_params.get('search', '')
         name = request.query_params.get('name', '')
+        limit = min(int(request.query_params.get('limit', 20)), 100)
 
         try:
             from apps.intelligence.services.graph import GraphService
             graph = GraphService(project.neo4j_namespace)
             if name:
-                results = [graph.get_function_context(name)]
-                results = [r for r in results if r]
+                result = graph.get_function_context(name)
+                results = [result] if result else []
             else:
-                results = graph.search_functions(search or '')
+                results = graph.search_functions(search, limit=limit)
             graph.close()
             return Response(results)
         except Exception as e:
@@ -284,7 +315,10 @@ class GraphFunctionsView(APIView):
 
 
 class GraphEndpointsView(APIView):
-    """GET /api/projects/<slug>/endpoints/ — List all API endpoints."""
+    """
+    GET /api/projects/<slug>/endpoints/
+    Returns all API endpoints with description, handler function, and file location.
+    """
     permission_classes = [IsAuthenticated]
 
     def get(self, request, slug):
@@ -304,7 +338,9 @@ class GraphEndpointsView(APIView):
 
 
 class GraphModelsView(APIView):
-    """GET /api/projects/<slug>/models/ — List all Django ORM models."""
+    """
+    GET /api/projects/<slug>/models/ — List all Django ORM models with fields + description.
+    """
     permission_classes = [IsAuthenticated]
 
     def get(self, request, slug):
@@ -320,6 +356,41 @@ class GraphModelsView(APIView):
             return Response(models)
         except Exception as e:
             logger.error(f"[GraphModelsView] {e}")
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class GraphClassesView(APIView):
+    """
+    GET /api/projects/<slug>/classes/
+
+    Query params:
+      search=<str>   — filter by name / description / docstring / base class
+      name=<str>     — exact name lookup with full method list
+      limit=<int>    — max results for search (default 20, max 100)
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, slug):
+        project, err = get_project_or_403(slug, request.user)
+        if err:
+            return err
+
+        search = request.query_params.get('search', '')
+        name = request.query_params.get('name', '')
+        limit = min(int(request.query_params.get('limit', 20)), 100)
+
+        try:
+            from apps.intelligence.services.graph import GraphService
+            graph = GraphService(project.neo4j_namespace)
+            if name:
+                result = graph.get_class_context(name)
+                results = [result] if result else []
+            else:
+                results = graph.search_classes(search, limit=limit)
+            graph.close()
+            return Response(results)
+        except Exception as e:
+            logger.error(f"[GraphClassesView] {e}")
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 

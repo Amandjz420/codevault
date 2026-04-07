@@ -21,6 +21,7 @@ class ParsedFunction:
     decorators: List[str]
     docstring: Optional[str]
     is_async: bool
+    description: Optional[str] = None  # AI-generated, always populated during ingestion
 
 
 @dataclass
@@ -32,7 +33,8 @@ class ParsedClass:
     bases: List[str]
     is_django_model: bool
     fields: List[dict]  # {name, type} for model fields
-    docstring: Optional[str]
+    docstring: Optional[str] = None
+    description: Optional[str] = None  # AI-generated, always populated during ingestion
 
 
 @dataclass
@@ -41,6 +43,7 @@ class ParsedEndpoint:
     view_name: str
     http_methods: List[str]
     start_line: int
+    description: Optional[str] = None  # AI-generated, always populated during ingestion
 
 
 @dataclass
