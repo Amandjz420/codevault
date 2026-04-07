@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import IndexedFile, IngestionJob, QueryLog
+from .models import IndexedFile, IngestionJob, QueryLog, ProjectMemory
 
 
 @admin.register(IndexedFile)
@@ -52,3 +52,17 @@ class QueryLogAdmin(admin.ModelAdmin):
     def question_preview(self, obj):
         return obj.question[:100]
     question_preview.short_description = 'Question'
+
+
+@admin.register(ProjectMemory)
+class ProjectMemoryAdmin(admin.ModelAdmin):
+    list_display = ('project', 'queries_since_update', 'summary_preview', 'last_updated')
+    list_filter = ('project',)
+    search_fields = ('project__name', 'summary')
+    readonly_fields = ('last_updated', 'queries_since_update')
+    ordering = ['-last_updated']
+    fields = ('project', 'summary', 'queries_since_update', 'last_updated')
+
+    def summary_preview(self, obj):
+        return obj.summary[:120] + '…' if len(obj.summary) > 120 else obj.summary or '(empty)'
+    summary_preview.short_description = 'Summary preview'

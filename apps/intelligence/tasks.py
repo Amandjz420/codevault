@@ -1,11 +1,14 @@
 """
-Celery tasks for asynchronous ingestion jobs.
+Celery tasks for asynchronous ingestion jobs and project memory updates.
 """
 import logging
 from celery import shared_task
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
+
+# Trigger a memory refresh after this many queries have been logged
+MEMORY_UPDATE_EVERY = 5
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=30)
@@ -41,6 +44,10 @@ def run_local_ingestion(self, project_id: int, path: str):
         project.save(update_fields=['last_indexed_at'])
 
         logger.info(f"[Task] Ingestion complete for {project.name}: {stats}")
+
+        # Update project memory to reflect the newly ingested code
+        refresh_memory_on_ingestion.delay(project.id, [], stats)
+
         return stats
 
     except Exception as exc:
@@ -95,6 +102,9 @@ def run_webhook_ingestion(
         project.last_indexed_at = timezone.now()
         project.save(update_fields=['last_indexed_at'])
 
+        # Update project memory with the specific files that changed
+        refresh_memory_on_ingestion.delay(project.id, changed_files, stats)
+
         return stats
 
     except Exception as exc:
@@ -102,4 +112,36 @@ def run_webhook_ingestion(
         job.error_message = str(exc)
         job.completed_at = timezone.now()
         job.save()
+        raise self.retry(exc=exc)
+
+
+# --------------------------------------------------------------------------- #
+#  Memory tasks                                                                #
+# --------------------------------------------------------------------------- #
+
+@shared_task(bind=True, max_retries=2, default_retry_delay=10)
+def update_project_memory(self, project_id: int):
+    """
+    Regenerate the project memory summary from recent Q&A pairs.
+    Triggered automatically every MEMORY_UPDATE_EVERY queries.
+    """
+    from apps.intelligence.services.memory import update_memory_from_queries
+    try:
+        update_memory_from_queries(project_id)
+    except Exception as exc:
+        logger.error(f"[Task] Memory update failed for project {project_id}: {exc}")
+        raise self.retry(exc=exc)
+
+
+@shared_task(bind=True, max_retries=2, default_retry_delay=10)
+def refresh_memory_on_ingestion(self, project_id: int, changed_files: list, stats: dict):
+    """
+    Update the project memory summary after a code ingestion completes.
+    Incorporates which files changed so future queries know about recent code evolution.
+    """
+    from apps.intelligence.services.memory import update_memory_from_ingestion
+    try:
+        update_memory_from_ingestion(project_id, changed_files, stats)
+    except Exception as exc:
+        logger.error(f"[Task] Ingestion memory refresh failed for project {project_id}: {exc}")
         raise self.retry(exc=exc)

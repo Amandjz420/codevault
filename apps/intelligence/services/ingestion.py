@@ -203,6 +203,7 @@ class IngestionOrchestrator:
             defaults={
                 'file_hash': file_hash,
                 'last_indexed': timezone.now(),
+                'content': content.decode('utf-8', errors='replace'),
                 'functions_count': len(parsed.functions),
                 'classes_count': len(parsed.classes),
                 'endpoints_count': len(parsed.endpoints),

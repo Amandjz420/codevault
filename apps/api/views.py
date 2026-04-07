@@ -20,7 +20,7 @@ class QueryRateThrottle(UserRateThrottle):
 
 from apps.projects.models import Project
 from apps.projects.serializers import ProjectSerializer, ProjectCreateSerializer, ProjectUpdateSerializer
-from apps.intelligence.models import IndexedFile, IngestionJob, QueryLog
+from apps.intelligence.models import IndexedFile, IngestionJob, QueryLog, ProjectMemory
 from .serializers import (
     IndexedFileSerializer,
     IngestionJobSerializer,
@@ -348,10 +348,29 @@ class QueryView(APIView):
             from apps.intelligence.services.graph import GraphService
             from apps.intelligence.services.vector import VectorService
             from apps.intelligence.services.llm import LLMQueryService
+            from apps.intelligence.tasks import update_project_memory, MEMORY_UPDATE_EVERY
+
+            # Load (or initialise) the rolling project memory for context injection
+            memory, _ = ProjectMemory.objects.get_or_create(project=project)
+
+            # Last 5 Q&A pairs sent as real conversation turns for continuity
+            recent_logs = list(
+                QueryLog.objects.filter(project=project)
+                .order_by('-created_at')[:5]
+            )
+            recent_interactions = [
+                {"question": log.question, "answer": log.answer}
+                for log in reversed(recent_logs)  # oldest → newest
+            ]
 
             graph = GraphService(project.neo4j_namespace)
             vector = VectorService(project.chroma_collection)
-            llm = LLMQueryService(graph, vector)
+            llm = LLMQueryService(
+                graph, vector,
+                project_memory=memory.summary,
+                recent_interactions=recent_interactions,
+                project=project,
+            )
 
             result = llm.query(question, effort)
             graph.close()
@@ -368,6 +387,13 @@ class QueryView(APIView):
                 latency_ms=result.get('latency_ms', 0),
                 context_files=result.get('context_files', []),
             )
+
+            # Increment counter and trigger async memory refresh when threshold is reached
+            ProjectMemory.objects.filter(project=project).update(
+                queries_since_update=memory.queries_since_update + 1,
+            )
+            if memory.queries_since_update + 1 >= MEMORY_UPDATE_EVERY:
+                update_project_memory.delay(project.id)
 
             return Response(result)
 

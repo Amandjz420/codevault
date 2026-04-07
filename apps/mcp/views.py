@@ -172,14 +172,54 @@ class MCPHttpView(View):
             return result
 
         elif tool_name == 'ask_codebase':
+            from apps.intelligence.models import QueryLog, ProjectMemory
+            from apps.intelligence.tasks import update_project_memory, MEMORY_UPDATE_EVERY
+
+            question = args.get('question', '')
+            effort = args.get('effort', 'medium')
+
+            memory, _ = ProjectMemory.objects.get_or_create(project=project)
+
+            # Last 5 Q&A pairs sent as real conversation turns for continuity
+            recent_logs = list(
+                QueryLog.objects.filter(project=project)
+                .order_by('-created_at')[:5]
+            )
+            recent_interactions = [
+                {"question": log.question, "answer": log.answer}
+                for log in reversed(recent_logs)  # oldest → newest
+            ]
+
             graph = GraphService(project.neo4j_namespace)
             vector = VectorService(project.chroma_collection)
-            llm = LLMQueryService(graph, vector)
-            result = llm.query(
-                args.get('question', ''),
-                args.get('effort', 'medium'),
+            llm = LLMQueryService(
+                graph, vector,
+                project_memory=memory.summary,
+                recent_interactions=recent_interactions,
+                project=project,
             )
+            result = llm.query(question, effort)
             graph.close()
+
+            # Log the query (no user attribution for MCP calls)
+            QueryLog.objects.create(
+                project=project,
+                question=question,
+                effort_level=effort,
+                llm_model=result.get('model', ''),
+                answer=result.get('answer', ''),
+                tokens_used=result.get('tokens_used', 0),
+                latency_ms=result.get('latency_ms', 0),
+                context_files=result.get('context_files', []),
+            )
+
+            # Increment counter and trigger async memory refresh when threshold is reached
+            ProjectMemory.objects.filter(project=project).update(
+                queries_since_update=memory.queries_since_update + 1,
+            )
+            if memory.queries_since_update + 1 >= MEMORY_UPDATE_EVERY:
+                update_project_memory.delay(project.id)
+
             return result
 
         elif tool_name == 'get_project_stats':

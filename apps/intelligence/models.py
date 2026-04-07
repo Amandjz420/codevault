@@ -10,6 +10,7 @@ class IndexedFile(models.Model):
     )
     file_path = models.CharField(max_length=500, help_text='Relative path within the project')
     file_hash = models.CharField(max_length=64, help_text='SHA-256 hash of file content')
+    content = models.TextField(blank=True, help_text='Full source code of the file')
     last_indexed = models.DateTimeField()
     functions_count = models.IntegerField(default=0)
     classes_count = models.IntegerField(default=0)
@@ -126,3 +127,36 @@ class QueryLog(models.Model):
 
     def __str__(self):
         return f"{self.project.name}: {self.question[:80]}"
+
+
+class ProjectMemory(models.Model):
+    """
+    Rolling memory for a project — a continuously-updated summary of what has been
+    learned through developer queries and code ingestion events.
+
+    Updated asynchronously via Celery:
+    - Every MEMORY_UPDATE_EVERY queries (from recent Q&A pairs)
+    - After each ingestion (incorporating code change context)
+    """
+    project = models.OneToOneField(
+        'projects.Project',
+        on_delete=models.CASCADE,
+        related_name='memory',
+    )
+    summary = models.TextField(
+        blank=True,
+        help_text='Rolling LLM-generated summary of codebase insights from queries and ingestions',
+    )
+    queries_since_update = models.IntegerField(
+        default=0,
+        help_text='Number of queries logged since the last memory update',
+    )
+    last_updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'intelligence_project_memory'
+        verbose_name = 'Project Memory'
+        verbose_name_plural = 'Project Memories'
+
+    def __str__(self):
+        return f"{self.project.name} memory (updated {self.last_updated:%Y-%m-%d %H:%M})"
