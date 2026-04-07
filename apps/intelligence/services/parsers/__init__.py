@@ -8,6 +8,7 @@ from .go_parser import GoParser
 from .rust_parser import RustParser
 from .java_parser import JavaParser
 from .markdown_parser import MarkdownParser
+from .json_parser import JSONParser
 from .base import BaseParser
 
 PARSER_REGISTRY = {
@@ -21,6 +22,7 @@ PARSER_REGISTRY = {
     '.java': JavaParser,
     '.md': MarkdownParser,
     '.mdx': MarkdownParser,
+    '.json': JSONParser,
 }
 
 SUPPORTED_EXTENSIONS = set(PARSER_REGISTRY.keys())
