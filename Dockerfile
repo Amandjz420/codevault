@@ -23,6 +23,7 @@ RUN mkdir -p /app/staticfiles /app/chroma_db_data /app/media
 
 EXPOSE 8000
 
-# Run migrations + collectstatic at start time (after volumes are mounted),
-# then launch gunicorn on Railway's dynamic PORT.
-CMD ["sh", "-c", "python manage.py migrate --noinput && python manage.py collectstatic --noinput && gunicorn codevault.asgi:application --bind 0.0.0.0:${PORT:-8000} --workers 4 --worker-class uvicorn.workers.UvicornWorker --timeout 120"]
+COPY start.sh /start.sh
+RUN chmod +x /start.sh
+
+CMD ["/start.sh"]
