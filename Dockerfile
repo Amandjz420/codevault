@@ -21,16 +21,24 @@ COPY . .
 # Create directories for static files and ChromaDB data
 RUN mkdir -p /app/staticfiles /app/chroma_db_data /app/media
 
-# Collect static files at build time so they are baked into the image.
-# A dummy SECRET_KEY is provided so Django can initialise without real env vars.
-# DATABASE_URL is pointed at a dummy value; collectstatic never touches the DB.
+# Collect static files at build time
 RUN SECRET_KEY=build-time-static-collection-only \
     DATABASE_URL=sqlite:////tmp/build.db \
     python manage.py collectstatic --noinput
 
 EXPOSE 8000
 
-COPY start.sh /start.sh
-RUN chmod +x /start.sh
-
-CMD ["/start.sh"]
+CMD ["sh", "-c", "\
+    echo '>>> Step 1: migrate' && \
+    python manage.py migrate --noinput && \
+    echo '>>> Step 2: migrate done' && \
+    echo '>>> Step 3: collectstatic' && \
+    python manage.py collectstatic --noinput || echo '>>> collectstatic failed, continuing' && \
+    echo '>>> Step 4: starting gunicorn on port '${PORT:-8000} && \
+    gunicorn codevault.asgi:application \
+        --bind 0.0.0.0:${PORT:-8000} \
+        --workers 4 \
+        --worker-class uvicorn.workers.UvicornWorker \
+        --timeout 120 \
+        --log-level info \
+"]
