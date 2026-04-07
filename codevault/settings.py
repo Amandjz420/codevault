@@ -41,6 +41,7 @@ MIDDLEWARE = [
     'apps.api.middleware.RequestTimingMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -128,8 +129,10 @@ NEO4J_URI = os.environ.get('NEO4J_URI', 'bolt://localhost:7687')
 NEO4J_USER = os.environ.get('NEO4J_USER', 'neo4j')
 NEO4J_PASSWORD = os.environ.get('NEO4J_PASSWORD', 'codevault_pass')
 
-# ChromaDB
+# ChromaDB — local file mode (dev) or HTTP mode (production/Railway)
 CHROMA_DB_PATH = os.environ.get('CHROMA_DB_PATH', str(BASE_DIR / 'chroma_db_data'))
+CHROMA_HOST = os.environ.get('CHROMA_HOST', '')       # set in Railway → switches to HttpClient
+CHROMA_PORT = int(os.environ.get('CHROMA_PORT', '8000'))
 
 # LLM API Keys
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
@@ -167,6 +170,7 @@ MAX_FILES_PER_PROJECT = int(os.environ.get('MAX_FILES_PER_PROJECT', '10000'))
 # Static & Media
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 

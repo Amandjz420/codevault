@@ -20,7 +20,14 @@ class VectorService:
     def _get_client(self):
         if self._client is None:
             import chromadb
-            self._client = chromadb.PersistentClient(path=settings.CHROMA_DB_PATH)
+            chroma_host = getattr(settings, 'CHROMA_HOST', '')
+            if chroma_host:
+                # HTTP mode — used in production (Railway) where web + worker are separate services
+                chroma_port = int(getattr(settings, 'CHROMA_PORT', 8000))
+                self._client = chromadb.HttpClient(host=chroma_host, port=chroma_port)
+            else:
+                # Local file mode — used in development
+                self._client = chromadb.PersistentClient(path=settings.CHROMA_DB_PATH)
         return self._client
 
     def _get_collection(self):
