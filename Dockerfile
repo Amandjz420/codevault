@@ -37,7 +37,7 @@ CMD ["sh", "-c", "\
     echo '>>> Step 4: starting gunicorn on port '${PORT:-8000} && \
     gunicorn codevault.asgi:application \
         --bind 0.0.0.0:${PORT:-8000} \
-        --workers 4 \
+        --workers 2 \
         --worker-class uvicorn.workers.UvicornWorker \
         --timeout 120 \
         --log-level info \
