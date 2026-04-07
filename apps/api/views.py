@@ -267,7 +267,6 @@ class GraphFunctionsView(APIView):
 
         search = request.query_params.get('search', '')
         name = request.query_params.get('name', '')
-        limit = min(int(request.query_params.get('limit', 20)), 100)
 
         try:
             from apps.intelligence.services.graph import GraphService
@@ -276,7 +275,7 @@ class GraphFunctionsView(APIView):
                 results = [graph.get_function_context(name)]
                 results = [r for r in results if r]
             else:
-                results = graph.search_functions(search or '')[:limit]
+                results = graph.search_functions(search or '')
             graph.close()
             return Response(results)
         except Exception as e:

@@ -286,7 +286,6 @@ class GraphService:
                    fn.is_async AS is_async,
                    fn.code AS code,
                    fn.docstring AS docstring
-            LIMIT 20
         """, {'ns': self.namespace, 'term': query})
 
     def search_classes(self, query: str) -> list:
@@ -301,7 +300,6 @@ class GraphService:
                    c.bases AS bases,
                    c.is_django_model AS is_django_model,
                    c.docstring AS docstring
-            LIMIT 20
         """, {'ns': self.namespace, 'term': query})
 
     def get_function_context(self, function_name: str) -> dict:
@@ -327,12 +325,13 @@ class GraphService:
                 count(CASE WHEN 'File'        IN labels(n) THEN 1 END) AS files,
                 count(CASE WHEN 'Function'    IN labels(n) THEN 1 END) AS functions,
                 count(CASE WHEN 'Class'       IN labels(n) THEN 1 END) AS classes,
+                count(CASE WHEN 'DjangoModel' IN labels(n) THEN 1 END) AS models,
                 count(CASE WHEN 'APIEndpoint' IN labels(n) THEN 1 END) AS endpoints,
                 count(CASE WHEN 'Signal'      IN labels(n) THEN 1 END) AS signals,
                 count(CASE WHEN 'CronJob'     IN labels(n) THEN 1 END) AS cron_jobs
         """, {'ns': self.namespace})
         return result[0] if result else {
-            'files': 0, 'functions': 0, 'classes': 0,
+            'files': 0, 'functions': 0, 'classes': 0, 'models': 0,
             'endpoints': 0, 'signals': 0, 'cron_jobs': 0,
         }
 

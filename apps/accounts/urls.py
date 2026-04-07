@@ -8,6 +8,7 @@ from .views import (
     ChangePasswordView,
     APITokenView,
     APITokenDetailView,
+    GitHubLoginInitView,
     GitHubOAuthInitView,
     GitHubOAuthCallbackView,
     GitHubDisconnectView,
@@ -23,7 +24,8 @@ urlpatterns = [
     path('tokens/', APITokenView.as_view(), name='auth-tokens'),
     path('tokens/<int:pk>/', APITokenDetailView.as_view(), name='auth-token-detail'),
     # GitHub OAuth
-    path('github/', GitHubOAuthInitView.as_view(), name='auth-github-init'),
+    path('github/login/', GitHubLoginInitView.as_view(), name='auth-github-login'),   # public — no JWT
+    path('github/', GitHubOAuthInitView.as_view(), name='auth-github-init'),           # requires JWT
     path('github/callback/', GitHubOAuthCallbackView.as_view(), name='auth-github-callback'),
     path('github/disconnect/', GitHubDisconnectView.as_view(), name='auth-github-disconnect'),
 ]
