@@ -45,9 +45,9 @@ class OAuthMetadataView(View):
         base = _base_url(request)
         return JsonResponse({
             "issuer": base,
-            "authorization_endpoint": f"{base}/mcp/oauth/authorize/",
-            "token_endpoint": f"{base}/mcp/oauth/token/",
-            "registration_endpoint": f"{base}/mcp/oauth/register/",
+            "authorization_endpoint": f"{base}/mcp/oauth/authorize",
+            "token_endpoint": f"{base}/mcp/oauth/token",
+            "registration_endpoint": f"{base}/mcp/oauth/register",
             "response_types_supported": ["code"],
             "grant_types_supported": ["authorization_code"],
             "code_challenge_methods_supported": ["S256"],
@@ -151,7 +151,7 @@ _LOGIN_HTML = """<!DOCTYPE html>
       Read-only access to your projects, codebase graph, and intelligence queries.
     </div>
     {error_html}
-    <form method="post" action="/mcp/oauth/authorize/">
+    <form method="post" action="/mcp/oauth/authorize">
       <input type="hidden" name="client_id" value="{client_id}">
       <input type="hidden" name="redirect_uri" value="{redirect_uri}">
       <input type="hidden" name="state" value="{state}">

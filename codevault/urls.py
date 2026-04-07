@@ -82,7 +82,10 @@ urlpatterns = [
     path('api/', include('apps.api.urls')),
     path('mcp/', include('apps.mcp.urls')),
     # MCP OAuth discovery — must be at root per the MCP Authorization spec
+    # Registered with and without trailing slash for maximum client compatibility.
     path('.well-known/oauth-authorization-server',
          __import__('apps.mcp.oauth_views', fromlist=['OAuthMetadataView']).OAuthMetadataView.as_view(),
          name='oauth-metadata'),
+    path('.well-known/oauth-authorization-server/',
+         __import__('apps.mcp.oauth_views', fromlist=['OAuthMetadataView']).OAuthMetadataView.as_view()),
 ]
