@@ -1,4 +1,5 @@
-from django.contrib import admin
+from django.contrib import admin, messages
+from django.utils.translation import ngettext
 from .models import Project, ProjectMember
 
 
@@ -22,12 +23,30 @@ class ProjectAdmin(admin.ModelAdmin):
     readonly_fields = ('created_at', 'updated_at', 'last_indexed_at', 'neo4j_namespace', 'chroma_collection')
     inlines = [ProjectMemberInline]
     ordering = ('-created_at',)
+    actions = ['hard_delete_selected']
     fieldsets = (
         (None, {'fields': ('name', 'slug', 'description', 'owner', 'language', 'is_active')}),
         ('Repository', {'fields': ('repo_url', 'local_path', 'github_webhook_secret')}),
         ('Storage', {'fields': ('neo4j_namespace', 'chroma_collection')}),
         ('Timestamps', {'fields': ('created_at', 'updated_at', 'last_indexed_at')}),
     )
+
+    def hard_delete_selected(self, request, queryset):
+        """Admin action to hard delete selected projects with full cleanup."""
+        count = queryset.count()
+        for project in queryset:
+            project.hard_delete()
+        
+        self.message_user(
+            request,
+            ngettext(
+                '%d project was permanently deleted with all its data.',
+                '%d projects were permanently deleted with all their data.',
+                count,
+            ) % count,
+            messages.SUCCESS,
+        )
+    hard_delete_selected.short_description = "Hard delete selected projects (permanent)"
 
 
 @admin.register(ProjectMember)

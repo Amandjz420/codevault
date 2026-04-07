@@ -1,5 +1,8 @@
 from django.db import models
 from django.utils.text import slugify
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class Project(models.Model):
@@ -119,6 +122,31 @@ class Project(models.Model):
             return member.role in ('admin', 'member')
         except ProjectMember.DoesNotExist:
             return False
+
+    def hard_delete(self):
+        """Hard delete project and clean up all related data."""
+        # Clean Neo4j graph nodes
+        try:
+            from apps.intelligence.services.graph import GraphService
+            graph = GraphService(self.neo4j_namespace)
+            graph.clear_project()
+            graph.close()
+        except Exception as e:
+            logger.warning(f"[Project.hard_delete] Neo4j cleanup failed for {self.slug}: {e}")
+
+        # Clean ChromaDB collection
+        try:
+            from apps.intelligence.services.vector import VectorService
+            vector = VectorService(self.chroma_collection)
+            vector.delete_collection()
+        except Exception as e:
+            logger.warning(f"[Project.hard_delete] ChromaDB cleanup failed for {self.slug}: {e}")
+
+        # Clean Postgres records (IndexedFile, IngestionJob, QueryLog, ProjectMemory)
+        self.indexed_files.all().delete()
+        
+        # Perform actual hard delete
+        super().delete(*args, **kwargs)
 
 
 class ProjectMember(models.Model):
