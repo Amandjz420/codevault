@@ -169,10 +169,10 @@ MAX_FILES_PER_PROJECT = int(os.environ.get('MAX_FILES_PER_PROJECT', '10000'))
 
 # Static & Media
 STATIC_URL = '/static/'
-STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATIC_ROOT = '/app/staticfiles'
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
+MEDIA_ROOT = '/app/staticfiles/media'
 
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'
