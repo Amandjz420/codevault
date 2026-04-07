@@ -15,8 +15,8 @@ from django.conf import settings
 logger = logging.getLogger(__name__)
 
 _MAX_LINES = 10
-_MAX_CODE_CHARS = 600   # keep prompts tiny for speed + cost
-_MAX_TOKENS = 180       # ~10 lines of output
+_MAX_CODE_CHARS = 5000   # keep prompts tiny for speed + cost
+_MAX_TOKENS = 500       # ~10 lines of output
 
 # Cheapest model per provider
 _CHEAP_MODELS = {
@@ -208,6 +208,7 @@ def generate_file_description(
     functions: list,
     classes: list,
     endpoints: list,
+    raw_content: str = '',
 ) -> str:
     """
     Generate a ≤10-line plain-English description for an entire source file.
@@ -223,7 +224,7 @@ def generate_file_description(
     ep_patterns = [e.url_pattern for e in endpoints[:10]]
 
     parts = [
-        f"Describe this source file in plain English. "
+        f"Describe this file in plain English. "
         f"Maximum {_MAX_LINES} lines. Focus on the file's overall purpose and responsibility. "
         f"Output only the description, no labels or headers.\n",
         f"File: {file_path}",
@@ -234,6 +235,9 @@ def generate_file_description(
         parts.append(f"Functions defined: {', '.join(fn_names)}")
     if ep_patterns:
         parts.append(f"API endpoints: {', '.join(ep_patterns)}")
+    # For content-only files (markdown, etc.) use the raw text as context
+    if raw_content and not fn_names and not cls_names and not ep_patterns:
+        parts.append(f"Content preview:\n{raw_content[:_MAX_CODE_CHARS]}")
 
     prompt = '\n'.join(parts)
     raw = _call_llm(provider, prompt)

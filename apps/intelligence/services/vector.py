@@ -118,6 +118,19 @@ class VectorService:
             })
             ids.append(self._make_id(file_path, "class", cls.name))
 
+        # For files with no extractable entities (e.g. Markdown), embed the raw content
+        # so the file is still discoverable via semantic search.
+        if not documents and hasattr(parsed_data, '_raw_content') and parsed_data._raw_content:
+            raw = parsed_data._raw_content[:4000]
+            documents.append(f"File: {file_path}\n\n{raw}")
+            metadatas.append({
+                "file_path": file_path,
+                "type": "file",
+                "name": file_path,
+                "start_line": 1,
+            })
+            ids.append(self._make_id(file_path, "file", file_path))
+
         if documents:
             collection = self._get_collection()
             batch_size = 50

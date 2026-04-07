@@ -352,6 +352,9 @@ class IngestionOrchestrator:
             # Fallback to Python parser for .py files
             parsed = self.parser.parse_file(content, rel_path)
 
+        # Attach raw decoded content so vector.py can embed files with no entities (e.g. Markdown)
+        parsed._raw_content = content.decode('utf-8', errors='replace')
+
         # Generate AI descriptions for all entities (fills parsed.*.description)
         try:
             enrich_parsed_file(parsed, rel_path)
@@ -436,6 +439,7 @@ class IngestionOrchestrator:
                 functions=parsed.functions,
                 classes=parsed.classes,
                 endpoints=parsed.endpoints,
+                raw_content=getattr(parsed, '_raw_content', ''),
             )
             if file_desc:
                 rows.append(EntityDescription(

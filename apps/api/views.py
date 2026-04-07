@@ -269,13 +269,29 @@ class GraphFilesView(APIView):
         page_size = min(int(request.query_params.get('page_size', 50)), 200)
         start = (page - 1) * page_size
         total = qs.count()
-        files = qs[start:start + page_size]
+        files = list(qs[start:start + page_size])
+
+        # Attach file-level descriptions from EntityDescription
+        from apps.intelligence.models import EntityDescription
+        file_paths = [f.file_path for f in files]
+        desc_map = {
+            ed.file_path: ed.description
+            for ed in EntityDescription.objects.filter(
+                project=project,
+                entity_type='file',
+                file_path__in=file_paths,
+            )
+        }
+
+        results = IndexedFileSerializer(files, many=True).data
+        for item in results:
+            item['description'] = desc_map.get(item['file_path'], '')
 
         return Response({
             'count': total,
             'page': page,
             'page_size': page_size,
-            'results': IndexedFileSerializer(files, many=True).data,
+            'results': results,
         })
 
 
