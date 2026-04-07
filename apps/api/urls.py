@@ -14,6 +14,7 @@ from .views import (
     TriggerIngestionView,
     TriggerGithubIngestionView,
     ListGithubReposView,
+    ListGithubRepoBranchesView,
     QueryLogListView,
 )
 from .webhooks import github_webhook
@@ -45,6 +46,7 @@ urlpatterns = [
 
     # GitHub
     path('github/repos/', ListGithubReposView.as_view(), name='github-repos'),
+    path('github/repos/<str:owner>/<str:repo>/branches/', ListGithubRepoBranchesView.as_view(), name='github-repo-branches'),
 
     # Webhooks
     path('webhooks/github/<slug:project_slug>/', github_webhook, name='github-webhook'),

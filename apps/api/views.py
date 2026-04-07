@@ -508,6 +508,49 @@ class QueryLogListView(APIView):
 #  GitHub Integration                                                  #
 # ------------------------------------------------------------------ #
 
+class ListGithubRepoBranchesView(APIView):
+    """
+    GET /api/github/repos/<owner>/<repo>/branches/
+    Proxies https://api.github.com/repos/{owner}/{repo}/branches using the
+    authenticated user's stored GitHub token. Returns the array as-is
+    (each item: name, commit.sha, protected).
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, owner, repo):
+        import requests as http_requests
+
+        token = request.user.github_access_token
+        if not token:
+            return Response(
+                {'error': 'GitHub account not connected. Visit /api/auth/github/ first.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            resp = http_requests.get(
+                f'https://api.github.com/repos/{owner}/{repo}/branches',
+                headers={
+                    'Authorization': f'token {token}',
+                    'Accept': 'application/vnd.github.v3+json',
+                },
+                params={'per_page': 100},
+                timeout=15,
+            )
+        except Exception as e:
+            logger.error(f"[ListGithubRepoBranchesView] {e}")
+            return Response({'error': 'Failed to reach GitHub API.'}, status=status.HTTP_502_BAD_GATEWAY)
+
+        if resp.status_code == 404:
+            return Response({'error': f'Repository {owner}/{repo} not found or not accessible.'}, status=status.HTTP_404_NOT_FOUND)
+        if resp.status_code == 401:
+            return Response({'error': 'GitHub token is invalid or expired.'}, status=status.HTTP_401_UNAUTHORIZED)
+        if resp.status_code != 200:
+            return Response({'error': 'GitHub API error.'}, status=status.HTTP_502_BAD_GATEWAY)
+
+        return Response(resp.json())
+
+
 class ListGithubReposView(APIView):
     """
     GET /api/github/repos/
@@ -599,6 +642,7 @@ class TriggerGithubIngestionView(APIView):
             )
 
         branch = request.data.get('branch') or project.github_default_branch or 'main'
+        commit_sha = request.data.get('commit_sha', '')
         clear = request.data.get('clear', False)
 
         # Persist repo/branch on the project if provided
@@ -626,11 +670,11 @@ class TriggerGithubIngestionView(APIView):
                 logger.warning(f"[TriggerGithubIngestion] Clear error: {e}")
 
         from apps.intelligence.tasks import run_github_ingestion
-        task = run_github_ingestion.delay(project.id, request.user.id)
+        task = run_github_ingestion.delay(project.id, request.user.id, commit_sha)
 
         logger.info(
             f"[TriggerGithubIngestion] Queued for {project.name} "
-            f"repo={github_repo} branch={branch} task={task.id}"
+            f"repo={github_repo} branch={branch} sha={commit_sha or 'HEAD'} task={task.id}"
         )
 
         return Response({
@@ -638,4 +682,5 @@ class TriggerGithubIngestionView(APIView):
             'task_id': str(task.id),
             'github_repo': github_repo,
             'branch': branch,
+            'commit_sha': commit_sha or None,
         }, status=status.HTTP_202_ACCEPTED)

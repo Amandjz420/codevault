@@ -22,7 +22,8 @@ class ProjectSerializer(serializers.ModelSerializer):
         model = Project
         fields = (
             'id', 'name', 'slug', 'description', 'owner',
-            'repo_url', 'local_path', 'language',
+            'repo_url', 'github_repo', 'github_default_branch',
+            'local_path', 'language',
             'created_at', 'updated_at', 'last_indexed_at',
             'neo4j_namespace', 'chroma_collection',
             'is_active', 'member_count', 'user_role',
@@ -48,6 +49,7 @@ class ProjectCreateSerializer(serializers.ModelSerializer):
         model = Project
         fields = (
             'name', 'description', 'repo_url',
+            'github_repo', 'github_default_branch',
             'local_path', 'language', 'github_webhook_secret',
         )
 
@@ -62,6 +64,7 @@ class ProjectUpdateSerializer(serializers.ModelSerializer):
         model = Project
         fields = (
             'name', 'description', 'repo_url',
+            'github_repo', 'github_default_branch',
             'local_path', 'language', 'github_webhook_secret',
         )
 

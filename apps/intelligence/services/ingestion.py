@@ -5,9 +5,6 @@ import base64
 import hashlib
 import logging
 import os
-import shutil
-import subprocess
-import tempfile
 from pathlib import Path
 from django.conf import settings
 import requests as http_requests
@@ -119,43 +116,127 @@ class IngestionOrchestrator:
 
         return stats
 
+    def _gh_headers(self, token: str) -> dict:
+        return {
+            'Authorization': f'token {token}',
+            'Accept': 'application/vnd.github.v3+json',
+        }
+
+    def _resolve_commit_sha(self, repo: str, token: str, branch: str) -> str:
+        """Return the HEAD commit SHA for a branch."""
+        url = f'https://api.github.com/repos/{repo}/commits/{branch}'
+        resp = http_requests.get(url, headers=self._gh_headers(token), timeout=15)
+        resp.raise_for_status()
+        return resp.json()['sha']
+
     def ingest_github_repo(
         self,
         repo: str,
         github_token: str,
         branch: str = 'main',
+        commit_sha: str = '',
         job=None,
     ) -> dict:
         """
-        Clone a GitHub repo to a temp directory and run a full local ingestion.
-        Cleans up the temp directory afterwards regardless of success/failure.
+        Ingest a full GitHub repo using the Git Trees API (recursive=1).
 
-        :param repo: 'owner/repo' string
+        Fetches the complete file tree at the given commit (or branch HEAD),
+        filters to supported code extensions, then downloads each file's raw
+        content from raw.githubusercontent.com and processes it through the
+        normal ingestion pipeline.
+
+        :param repo:         'owner/repo'
         :param github_token: user's GitHub OAuth access token
-        :param branch: branch to clone (default: 'main')
-        :param job: optional IngestionJob ORM record for progress tracking
+        :param branch:       branch name (resolved to SHA if commit_sha not given)
+        :param commit_sha:   optional explicit commit SHA to pin the tree
+        :param job:          optional IngestionJob record for progress tracking
         """
-        clone_url = f'https://x-access-token:{github_token}@github.com/{repo}.git'
-        tmp_dir = tempfile.mkdtemp(prefix='codevault_gh_')
-        logger.info(f"[Ingestion] Cloning {repo}@{branch} into {tmp_dir}")
+        from apps.intelligence.models import IndexedFile
 
-        try:
-            result = subprocess.run(
-                ['git', 'clone', '--depth=1', '--branch', branch, clone_url, tmp_dir],
-                capture_output=True,
-                text=True,
-                timeout=300,
-            )
-            if result.returncode != 0:
-                # Sanitize token from error output before logging
-                safe_err = result.stderr.replace(github_token, '***')
-                raise RuntimeError(f"git clone failed: {safe_err}")
+        # 1. Resolve commit SHA
+        sha = commit_sha or self._resolve_commit_sha(repo, github_token, branch)
+        logger.info(f"[Ingestion] Fetching tree for {repo}@{sha[:8]}")
 
-            logger.info(f"[Ingestion] Clone complete, starting ingestion for {repo}")
-            return self.ingest_local(tmp_dir, job=job)
+        # 2. Fetch full recursive tree
+        tree_url = f'https://api.github.com/repos/{repo}/git/trees/{sha}?recursive=1'
+        tree_resp = http_requests.get(tree_url, headers=self._gh_headers(github_token), timeout=30)
+        tree_resp.raise_for_status()
+        tree_data = tree_resp.json()
 
-        finally:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
+        if tree_data.get('truncated'):
+            logger.warning(f"[Ingestion] Tree is truncated for {repo} — repo may be very large")
+
+        # 3. Filter to supported code files, skip unwanted dirs
+        max_files = getattr(settings, 'MAX_FILES_PER_PROJECT', MAX_FILES_PER_PROJECT)
+        max_size = getattr(settings, 'MAX_FILE_SIZE_BYTES', MAX_FILE_SIZE)
+
+        code_files = []
+        for item in tree_data.get('tree', []):
+            if item['type'] != 'blob':
+                continue
+            path = item['path']
+            ext = os.path.splitext(path)[1].lower()
+            if ext not in SUPPORTED_EXTENSIONS:
+                continue
+            parts = Path(path).parts
+            if any(part in SKIP_DIRS for part in parts):
+                continue
+            # item['size'] is in bytes — skip oversized files
+            if item.get('size', 0) > max_size:
+                logger.warning(f"[Ingestion] Skipping {path}: exceeds max size")
+                continue
+            code_files.append(path)
+
+        if len(code_files) > max_files:
+            logger.warning(f"[Ingestion] Capping at {max_files} files (found {len(code_files)})")
+            code_files = code_files[:max_files]
+
+        stats = {"processed": 0, "skipped": 0, "errors": 0, "total": len(code_files)}
+
+        if job:
+            job.files_total = len(code_files)
+            job.save(update_fields=['files_total'])
+
+        logger.info(f"[Ingestion] Processing {len(code_files)} files from {repo}")
+
+        # 4. Download + process each file
+        raw_base = f'https://raw.githubusercontent.com/{repo}/{sha}'
+
+        for file_path in code_files:
+            try:
+                raw_url = f'{raw_base}/{file_path}'
+                raw_resp = http_requests.get(
+                    raw_url,
+                    headers={'Authorization': f'token {github_token}'},
+                    timeout=15,
+                )
+                if raw_resp.status_code == 404:
+                    logger.warning(f"[Ingestion] 404 for {file_path} — skipping")
+                    stats['skipped'] += 1
+                    continue
+                raw_resp.raise_for_status()
+                content = raw_resp.content
+
+                file_hash = get_file_hash(content)
+                existing = IndexedFile.objects.filter(
+                    project=self.project, file_path=file_path
+                ).first()
+
+                if existing and existing.file_hash == file_hash:
+                    stats['skipped'] += 1
+                else:
+                    self._process_file(file_path, content, file_hash, existing)
+                    stats['processed'] += 1
+
+                if job:
+                    job.files_processed = stats['processed'] + stats['skipped']
+                    job.save(update_fields=['files_processed'])
+
+            except Exception as e:
+                logger.error(f"[Ingestion] Error processing {file_path}: {e}")
+                stats['errors'] += 1
+
+        return stats
 
     def ingest_changed_files(
         self,

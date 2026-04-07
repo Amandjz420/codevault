@@ -178,7 +178,8 @@ CACHES = {
 # GitHub OAuth
 GITHUB_CLIENT_ID = os.environ.get('GITHUB_CLIENT_ID', '')
 GITHUB_CLIENT_SECRET = os.environ.get('GITHUB_CLIENT_SECRET', '')
-GITHUB_REDIRECT_URI = os.environ.get('GITHUB_REDIRECT_URI', 'http://localhost:8000/api/auth/github/callback/')
+GITHUB_REDIRECT_URI = os.environ.get('GITHUB_REDIRECT_URI', 'https://codevault-production-e2a0.up.railway.app/api/auth/github/callback/')
+GITHUB_FRONTEND_CALLBACK_URL = os.environ.get('GITHUB_FRONTEND_CALLBACK_URL', 'https://codestorage.lovable.app/auth/github/success')
 
 # Rate Limiting
 RATE_LIMIT_REQUESTS = int(os.environ.get('RATE_LIMIT_REQUESTS', '100'))

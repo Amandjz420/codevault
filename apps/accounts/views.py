@@ -2,6 +2,8 @@ import secrets
 import requests as http_requests
 from django.conf import settings
 from django.core.cache import cache
+from django.http import HttpResponseRedirect
+from urllib.parse import urlencode
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -190,13 +192,38 @@ _STATE_TTL = 600  # 10 minutes
 class GitHubOAuthInitView(APIView):
     """
     GET /api/auth/github/
-    Returns the GitHub OAuth authorization URL. The caller (frontend/CLI)
-    should redirect the user there. A short-lived CSRF state token is stored
-    in cache and must be echoed back via the callback.
+    Returns (or immediately redirects to) the GitHub OAuth authorization URL.
+
+    Two usage modes:
+    - API mode (frontend fetch):  send Authorization: Bearer <jwt> header
+      → returns JSON { "authorization_url": "..." }
+    - Browser redirect mode:      pass ?token=<jwt> as a query param
+      → authenticates via token, then 302-redirects directly to GitHub OAuth
+      (used when the frontend cannot set headers on a window.location redirect)
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
 
     def get(self, request):
+        # Resolve user — Bearer header OR ?token= query param
+        user = None
+        if request.user and request.user.is_authenticated:
+            user = request.user
+        else:
+            raw_token = request.query_params.get('token', '')
+            if raw_token:
+                from rest_framework_simplejwt.tokens import UntypedToken
+                from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
+                from django.contrib.auth import get_user_model
+                try:
+                    validated = UntypedToken(raw_token)
+                    user_id = validated.payload.get('user_id')
+                    user = get_user_model().objects.get(pk=user_id)
+                except (InvalidToken, TokenError, Exception):
+                    return Response({'error': 'Invalid or expired token.'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        if user is None:
+            return Response({'error': 'Authentication required.'}, status=status.HTTP_401_UNAUTHORIZED)
+
         if not settings.GITHUB_CLIENT_ID:
             return Response(
                 {'error': 'GitHub OAuth is not configured on this server.'},
@@ -204,16 +231,22 @@ class GitHubOAuthInitView(APIView):
             )
 
         state = secrets.token_urlsafe(24)
-        # Bind state to user so the callback can find them
-        cache.set(f'github_oauth_state:{state}', request.user.pk, _STATE_TTL)
+        cache.set(f'github_oauth_state:{state}', user.pk, _STATE_TTL)
 
-        params = (
-            f'client_id={settings.GITHUB_CLIENT_ID}'
+        auth_url = (
+            f'{_GITHUB_AUTH_URL}'
+            f'?client_id={settings.GITHUB_CLIENT_ID}'
             f'&redirect_uri={settings.GITHUB_REDIRECT_URI}'
             f'&scope=repo,read:user'
             f'&state={state}'
         )
-        return Response({'authorization_url': f'{_GITHUB_AUTH_URL}?{params}'})
+
+        # Browser redirect mode — called via window.location with ?token=
+        if request.query_params.get('token'):
+            return HttpResponseRedirect(auth_url)
+
+        # API mode — called via fetch with Authorization header
+        return Response({'authorization_url': auth_url})
 
 
 class GitHubOAuthCallbackView(APIView):
@@ -279,12 +312,15 @@ class GitHubOAuthCallbackView(APIView):
         user.save(update_fields=['github_id', 'github_username', 'github_access_token'])
 
         tokens = get_tokens_for_user(user)
-        return Response({
-            'message': 'GitHub account connected.',
-            'github_username': user.github_username,
+
+        # Redirect to frontend with tokens as query params
+        frontend_url = settings.GITHUB_FRONTEND_CALLBACK_URL
+        params = urlencode({
             'access': tokens['access'],
             'refresh': tokens['refresh'],
+            'github_username': user.github_username,
         })
+        return HttpResponseRedirect(f'{frontend_url}?{params}')
 
 
 class GitHubDisconnectView(APIView):

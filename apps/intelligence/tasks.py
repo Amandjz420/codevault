@@ -60,7 +60,7 @@ def run_local_ingestion(self, project_id: int, path: str):
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=30)
-def run_github_ingestion(self, project_id: int, triggered_by_user_id: int):
+def run_github_ingestion(self, project_id: int, triggered_by_user_id: int, commit_sha: str = ''):
     """
     Celery task: full ingestion of a GitHub repo.
     Clones the repo using the triggering user's GitHub access token,
@@ -92,6 +92,7 @@ def run_github_ingestion(self, project_id: int, triggered_by_user_id: int):
             repo=project.github_repo,
             github_token=user.github_access_token,
             branch=project.github_default_branch or 'main',
+            commit_sha=commit_sha,
             job=job,
         )
         orchestrator.close()
