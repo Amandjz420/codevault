@@ -38,10 +38,13 @@ LOCAL_APPS = [
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
 MIDDLEWARE = [
-    'apps.api.middleware.RequestTimingMiddleware',
-    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    # WhiteNoise must be immediately after SecurityMiddleware so it can serve
+    # static files (including Django admin CSS/JS) before any other middleware
+    # inspects or short-circuits the request.
     'whitenoise.middleware.WhiteNoiseMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
+    'apps.api.middleware.RequestTimingMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -170,7 +173,23 @@ MAX_FILES_PER_PROJECT = int(os.environ.get('MAX_FILES_PER_PROJECT', '10000'))
 # Static & Media
 STATIC_URL = '/static/'
 STATIC_ROOT = '/app/staticfiles'
+
+# Use CompressedStaticFilesStorage instead of CompressedManifestStaticFilesStorage.
+# The Manifest variant requires a valid staticfiles.json to exist at startup; if
+# collectstatic hasn't run (or failed silently during the Docker build) every
+# static-file request raises a ValueError and the admin is completely unstyled.
+# CompressedStaticFilesStorage compresses files but does NOT require a manifest,
+# so the admin CSS/JS are always served even when the manifest is absent.
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedStaticFilesStorage'
+
+# Tell WhiteNoise to also search Django's app static-file finders at runtime.
+# This ensures admin assets collected into STATIC_ROOT are always discoverable.
+WHITENOISE_USE_FINDERS = True
+
+# In DEBUG mode, skip compression and serve files straight from the source
+# directories so changes are visible immediately without re-running collectstatic.
+WHITENOISE_AUTOREFRESH = DEBUG
+
 MEDIA_URL = '/media/'
 MEDIA_ROOT = '/app/staticfiles/media'
 
