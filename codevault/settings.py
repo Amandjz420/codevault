@@ -126,6 +126,19 @@ SIMPLE_JWT = {
 
 CORS_ALLOW_ALL_ORIGINS = os.environ.get('CORS_ALLOW_ALL_ORIGINS', 'True') == 'True'
 CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'authorization',
+    'content-type',
+    'x-csrftoken',
+]
+
+# Required for Django 4+ CSRF checks over HTTPS.
+# Include every domain that will POST to this app.
+_allowed_hosts = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
+CSRF_TRUSTED_ORIGINS = [
+    f"https://{host}" for host in _allowed_hosts if host not in ('localhost', '127.0.0.1')
+] + ['http://localhost', 'http://127.0.0.1']
 
 # Neo4j
 NEO4J_URI = os.environ.get('NEO4J_URI', 'bolt://localhost:7687')
