@@ -340,9 +340,9 @@ class IngestionOrchestrator:
 
     def _process_file(self, rel_path: str, content: bytes, file_hash: str, existing_record=None):
         """Parse a single file and store it in graph + vector + ORM."""
-        from apps.intelligence.models import IndexedFile
+        from apps.intelligence.models import IndexedFile, EntityDescription
         from django.utils import timezone
-        from apps.intelligence.services.description import enrich_parsed_file
+        from apps.intelligence.services.description import enrich_parsed_file, generate_file_description
 
         # Try language-specific parser first
         lang_parser = get_parser_for_file(rel_path)
@@ -381,5 +381,79 @@ class IngestionOrchestrator:
             },
         )
 
+        # Upsert EntityDescription records for all entities in this file
+        self._upsert_entity_descriptions(rel_path, parsed)
+
         if parsed.errors:
             logger.warning(f"[Ingestion] {rel_path} had parse errors: {parsed.errors}")
+
+    def _upsert_entity_descriptions(self, rel_path: str, parsed):
+        """Bulk-upsert EntityDescription rows for every entity in a parsed file."""
+        from apps.intelligence.models import EntityDescription
+        from apps.intelligence.services.description import generate_file_description
+
+        project = self.project
+        rows = []
+
+        # Functions
+        for fn in parsed.functions:
+            if fn.description:
+                rows.append(EntityDescription(
+                    project=project,
+                    file_path=rel_path,
+                    entity_type='function',
+                    entity_name=fn.name,
+                    description=fn.description,
+                ))
+
+        # Classes (includes Django models — labelled separately below)
+        for cls in parsed.classes:
+            if cls.description:
+                etype = 'model' if getattr(cls, 'is_django_model', False) else 'class'
+                rows.append(EntityDescription(
+                    project=project,
+                    file_path=rel_path,
+                    entity_type=etype,
+                    entity_name=cls.name,
+                    description=cls.description,
+                ))
+
+        # Endpoints
+        for ep in parsed.endpoints:
+            if ep.description:
+                rows.append(EntityDescription(
+                    project=project,
+                    file_path=rel_path,
+                    entity_type='endpoint',
+                    entity_name=ep.url_pattern,
+                    description=ep.description,
+                ))
+
+        # File-level description
+        try:
+            file_desc = generate_file_description(
+                file_path=rel_path,
+                functions=parsed.functions,
+                classes=parsed.classes,
+                endpoints=parsed.endpoints,
+            )
+            if file_desc:
+                rows.append(EntityDescription(
+                    project=project,
+                    file_path=rel_path,
+                    entity_type='file',
+                    entity_name=rel_path,
+                    description=file_desc,
+                ))
+        except Exception as e:
+            logger.warning(f"[Ingestion] File description generation failed for {rel_path}: {e}")
+
+        # Bulk upsert — update_or_create per row (small N per file, acceptable)
+        for row in rows:
+            EntityDescription.objects.update_or_create(
+                project=project,
+                file_path=row.file_path,
+                entity_type=row.entity_type,
+                entity_name=row.entity_name,
+                defaults={'description': row.description},
+            )

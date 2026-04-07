@@ -232,9 +232,12 @@ class LLMQueryService:
                 rewritten = resp.content[0].text.strip()
 
             elif self.provider == 'google':
-                import google.generativeai as genai
-                genai.configure(api_key=settings.GOOGLE_API_KEY)
-                resp = genai.GenerativeModel('gemini-3.1-pro-preview').generate_content(prompt)
+                from google import genai
+                client = genai.Client(api_key=settings.GOOGLE_API_KEY)
+                resp = client.models.generate_content(
+                    model='gemini-3.1-pro-preview',
+                    contents=prompt,
+                )
                 rewritten = resp.text.strip()
 
             else:
@@ -372,16 +375,25 @@ class LLMQueryService:
         return resp.content[0].text, model, tokens
 
     def _call_google(self, prompt: str, model: str) -> tuple:
-        import google.generativeai as genai
-        genai.configure(api_key=settings.GOOGLE_API_KEY)
+        from google import genai
+        from google.genai import types
+        client = genai.Client(api_key=settings.GOOGLE_API_KEY)
         history = [
-            {"role": "model" if m["role"] == "assistant" else "user", "parts": [m["content"]]}
+            types.Content(
+                role="model" if m["role"] == "assistant" else "user",
+                parts=[types.Part(text=m["content"])],
+            )
             for m in self._build_history_messages()
         ]
-        chat = genai.GenerativeModel(model, system_instruction=SYSTEM_PROMPT).start_chat(history=history)
+        chat = client.chats.create(
+            model=model,
+            history=history,
+            config=types.GenerateContentConfig(system_instruction=SYSTEM_PROMPT),
+        )
         resp = chat.send_message(prompt)
         usage = getattr(resp, 'usage_metadata', None)
-        return resp.text, model, getattr(usage, 'total_token_count', 0) if usage else 0
+        text = getattr(resp, 'text', None) or ''
+        return text, model, getattr(usage, 'total_token_count', 0) if usage else 0
 
     # ------------------------------------------------------------------
     # Agentic LLM call with get_file_content tool (high effort only)
@@ -521,31 +533,55 @@ class LLMQueryService:
 
     def _google_tool_loop(self, prompt: str, model: str) -> tuple:
         """
-        Google's SDK supports automatic function calling — we pass the actual
-        Python function and the SDK handles the tool loop internally.
+        Google Gemini tool-call loop using automatic function calling.
+        Falls back to a plain call if the model produces a malformed tool call
+        (finish_reason=MALFORMED_FUNCTION_CALL) — a known Gemini issue.
         """
-        import google.generativeai as genai
-        genai.configure(api_key=settings.GOOGLE_API_KEY)
+        from google import genai
+        from google.genai import types
 
-        # Bind self so the tool has access to _fetch_file_content
+        client = genai.Client(api_key=settings.GOOGLE_API_KEY)
+
         def get_file_content(file_path: str) -> str:
             """Fetch the complete source code of a specific file from the codebase index."""
             logger.info(f"[LLM/Google] Tool call → get_file_content('{file_path}')")
             return self._fetch_file_content(file_path)
 
-        m = genai.GenerativeModel(
-            model,
-            system_instruction=SYSTEM_PROMPT,
-            tools=[get_file_content],
-        )
-
         history = [
-            {"role": "model" if msg["role"] == "assistant" else "user", "parts": [msg["content"]]}
+            types.Content(
+                role="model" if msg["role"] == "assistant" else "user",
+                parts=[types.Part(text=msg["content"])],
+            )
             for msg in self._build_history_messages()
         ]
 
-        chat = m.start_chat(history=history, enable_automatic_function_calling=True)
-        resp = chat.send_message(prompt)
-        usage = getattr(resp, 'usage_metadata', None)
-        total = getattr(usage, 'total_token_count', 0) if usage else 0
-        return resp.text, model, total
+        chat = client.chats.create(
+            model=model,
+            history=history,
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_PROMPT,
+                tools=[get_file_content],
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=False),
+            ),
+        )
+
+        try:
+            resp = chat.send_message(prompt)
+
+            candidate = resp.candidates[0] if resp.candidates else None
+            if candidate:
+                if candidate.finish_reason == types.FinishReason.MALFORMED_FUNCTION_CALL:
+                    logger.warning(
+                        f"[LLM/Google] MALFORMED_FUNCTION_CALL from {model} — "
+                        "falling back to plain call without tools"
+                    )
+                    return self._call_google(prompt, model)
+
+            usage = getattr(resp, 'usage_metadata', None)
+            total = getattr(usage, 'total_token_count', 0) if usage else 0
+            text = getattr(resp, 'text', None) or ''
+            return text, model, total
+
+        except Exception as exc:
+            logger.warning(f"[LLM/Google] Tool loop error: {exc} — falling back to plain call")
+            return self._call_google(prompt, model)

@@ -68,12 +68,16 @@ def _call_llm(provider: str, prompt: str) -> str:
             return resp.content[0].text if resp.content else ''
 
         if provider == 'google':
-            import google.generativeai as genai
-            genai.configure(api_key=settings.GOOGLE_API_KEY)
-            model = genai.GenerativeModel(_CHEAP_MODELS['google'])
-            resp = model.generate_content(
-                prompt,
-                generation_config={'max_output_tokens': _MAX_TOKENS, 'temperature': 0.2},
+            from google import genai
+            from google.genai import types
+            client = genai.Client(api_key=settings.GOOGLE_API_KEY)
+            resp = client.models.generate_content(
+                model=_CHEAP_MODELS['google'],
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    max_output_tokens=_MAX_TOKENS,
+                    temperature=0.2,
+                ),
             )
             return resp.text or ''
 
@@ -197,3 +201,40 @@ def enrich_parsed_file(parsed_file, file_path: str) -> None:
             file_path=file_path,
             extra=extra,
         )
+
+
+def generate_file_description(
+    file_path: str,
+    functions: list,
+    classes: list,
+    endpoints: list,
+) -> str:
+    """
+    Generate a ≤10-line plain-English description for an entire source file.
+    Summarises the file's purpose based on its entities.
+    Returns empty string if no LLM provider is configured or the call fails.
+    """
+    provider = _get_provider()
+    if not provider:
+        return ''
+
+    fn_names = [f.name for f in functions[:10]]
+    cls_names = [c.name for c in classes[:10]]
+    ep_patterns = [e.url_pattern for e in endpoints[:10]]
+
+    parts = [
+        f"Describe this source file in plain English. "
+        f"Maximum {_MAX_LINES} lines. Focus on the file's overall purpose and responsibility. "
+        f"Output only the description, no labels or headers.\n",
+        f"File: {file_path}",
+    ]
+    if cls_names:
+        parts.append(f"Classes defined: {', '.join(cls_names)}")
+    if fn_names:
+        parts.append(f"Functions defined: {', '.join(fn_names)}")
+    if ep_patterns:
+        parts.append(f"API endpoints: {', '.join(ep_patterns)}")
+
+    prompt = '\n'.join(parts)
+    raw = _call_llm(provider, prompt)
+    return _enforce_limit(raw)

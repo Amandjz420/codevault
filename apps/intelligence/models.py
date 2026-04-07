@@ -36,6 +36,47 @@ class IndexedFile(models.Model):
         )
 
 
+class EntityDescription(models.Model):
+    """
+    Stores AI-generated descriptions for every code entity extracted during ingestion.
+    Durable Postgres copy of what is also written to Neo4j node properties.
+
+    One row per (project, file, entity_type, entity_name) — upserted on every ingestion.
+    """
+
+    ENTITY_TYPES = [
+        ('function', 'Function'),
+        ('class', 'Class'),
+        ('endpoint', 'Endpoint'),
+        ('model', 'Django Model'),
+        ('file', 'File'),
+    ]
+
+    project = models.ForeignKey(
+        'projects.Project',
+        on_delete=models.CASCADE,
+        related_name='entity_descriptions',
+    )
+    file_path = models.CharField(max_length=500)
+    entity_type = models.CharField(max_length=20, choices=ENTITY_TYPES)
+    entity_name = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'intelligence_entity_description'
+        unique_together = ('project', 'file_path', 'entity_type', 'entity_name')
+        verbose_name = 'Entity Description'
+        verbose_name_plural = 'Entity Descriptions'
+        indexes = [
+            models.Index(fields=['project', 'entity_type']),
+            models.Index(fields=['project', 'entity_name']),
+        ]
+
+    def __str__(self):
+        return f"{self.entity_type}:{self.entity_name} ({self.file_path})"
+
+
 class IngestionJob(models.Model):
     """Tracks the status of a codebase ingestion run."""
 

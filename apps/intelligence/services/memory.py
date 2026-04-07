@@ -72,13 +72,16 @@ def _call_llm(prompt: str) -> str:
             return resp.content[0].text.strip()
 
         elif provider == 'google':
-            import google.generativeai as genai
-            genai.configure(api_key=settings.GOOGLE_API_KEY)
-            m = genai.GenerativeModel(
-                'gemini-3.1-flash-lite-preview',
-                system_instruction=_SUMMARY_SYSTEM_PROMPT,
+            from google import genai
+            from google.genai import types
+            client = genai.Client(api_key=settings.GOOGLE_API_KEY)
+            resp = client.models.generate_content(
+                model='gemini-3.1-flash-lite-preview',
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=_SUMMARY_SYSTEM_PROMPT,
+                ),
             )
-            resp = m.generate_content(prompt)
             return resp.text.strip()
 
     except Exception as exc:
