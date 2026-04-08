@@ -358,17 +358,22 @@ class MCPSSEView(View):
 
         async def event_stream():
             # MCP 2024-11-05 SSE transport: first event MUST be `endpoint`
-            yield f"event: endpoint\ndata: {post_url}\n\n"
-
-            # Keep the stream alive with periodic pings
+            yield (f"event: endpoint\ndata: {post_url}\n\n").encode()
+            # Keep-alive comments (SSE spec: lines starting with ':' are comments)
             while True:
                 await asyncio.sleep(15)
-                yield ': ping\n\n'
+                yield b": ping\n\n"
 
+        # Build the response, then explicitly override _iterator and is_async so
+        # Django's ASGI handler uses the async path regardless of version/detection.
+        # Without this, Django may fall back to sync_to_async(list)(...) which
+        # tries to buffer the entire infinite stream before sending anything.
         response = StreamingHttpResponse(
-            event_stream(),
+            streaming_content=(),   # placeholder — overridden below
             content_type='text/event-stream',
         )
+        response._iterator = event_stream()
+        response.is_async = True
         response['Cache-Control'] = 'no-cache'
         response['X-Accel-Buffering'] = 'no'
         return response
