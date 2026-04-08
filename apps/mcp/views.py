@@ -156,9 +156,17 @@ class MCPHttpView(View):
 
         elif tool_name == 'get_function':
             graph = GraphService(project.neo4j_namespace)
-            result = graph.get_function_context(args.get('function_name', ''))
-            graph.close()
-            return result
+            function_name = args.get('function_name', '')
+            search = args.get('search', '')
+            limit = min(args.get('limit', 20), 100)
+            if function_name:
+                result = graph.get_function_context(function_name)
+                graph.close()
+                return result if result else {"error": f"Function '{function_name}' not found"}
+            else:
+                results = graph.search_functions(search, limit=limit)
+                graph.close()
+                return results
 
         elif tool_name == 'list_api_endpoints':
             graph = GraphService(project.neo4j_namespace)
@@ -232,38 +240,47 @@ class MCPHttpView(View):
             return stats
 
         elif tool_name == 'list_files':
+            from apps.intelligence.models import EntityDescription
             qs = IndexedFile.objects.filter(project=project)
             search = args.get('search', '')
             if search:
                 qs = qs.filter(file_path__icontains=search)
+            files = list(qs.order_by('file_path')[:100])
+            # Attach AI-generated file summaries stored by the ingestion pipeline
+            file_paths = [f.file_path for f in files]
+            desc_map = {
+                ed.file_path: ed.description
+                for ed in EntityDescription.objects.filter(
+                    project=project,
+                    entity_type='file',
+                    file_path__in=file_paths,
+                )
+            }
             return [
                 {
                     'file_path': f.file_path,
+                    'description': desc_map.get(f.file_path, ''),
                     'functions': f.functions_count,
                     'classes': f.classes_count,
                     'endpoints': f.endpoints_count,
                     'last_indexed': f.last_indexed.isoformat() if f.last_indexed else None,
                 }
-                for f in qs.order_by('file_path')[:100]
+                for f in files
             ]
 
         elif tool_name == 'get_class':
             graph = GraphService(project.neo4j_namespace)
             class_name = args.get('class_name', '')
-            results = graph.query_graph("""
-                MATCH (c:Class {name: $name, namespace: $ns})
-                OPTIONAL MATCH (f:File)-[:DEFINES]->(c)
-                RETURN c.name AS name,
-                       c.code AS code,
-                       c.bases AS bases,
-                       c.is_django_model AS is_model,
-                       c.docstring AS docstring,
-                       c.start_line AS start_line,
-                       c.end_line AS end_line,
-                       f.path AS file_path
-            """, {'name': class_name, 'ns': project.neo4j_namespace})
-            graph.close()
-            return results[0] if results else {"error": f"Class '{class_name}' not found"}
+            search = args.get('search', '')
+            limit = min(args.get('limit', 20), 100)
+            if class_name:
+                result = graph.get_class_context(class_name)
+                graph.close()
+                return result if result else {"error": f"Class '{class_name}' not found"}
+            else:
+                results = graph.search_classes(search, limit=limit)
+                graph.close()
+                return results
 
         elif tool_name == 'get_file_summary':
             graph = GraphService(project.neo4j_namespace)

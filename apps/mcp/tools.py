@@ -45,10 +45,13 @@ TOOLS = [
     {
         "name": "get_function",
         "description": (
-            "Get complete details about a specific function or method: "
-            "full source code, file location, line numbers, docstring, "
-            "which API endpoints trigger it, and which signals it handles. "
-            "Use this after search_codebase to dive deep into a specific function."
+            "Look up functions or methods in the project. Two modes:\n"
+            "1. Exact lookup (provide function_name): returns full source code, "
+            "file location, line numbers, docstring, which API endpoints trigger it, "
+            "and which signals it handles.\n"
+            "2. Search (provide search term or leave both empty): returns a list of "
+            "matching functions filtered by name or docstring.\n"
+            "Use exact lookup after search_codebase to dive deep into a specific function."
         ),
         "inputSchema": {
             "type": "object",
@@ -59,19 +62,32 @@ TOOLS = [
                 },
                 "function_name": {
                     "type": "string",
-                    "description": "Exact function/method name (e.g., 'create_user', 'handle_payment')",
+                    "description": "Exact function/method name for full context lookup (e.g., 'create_user'). Omit to use search mode.",
+                },
+                "search": {
+                    "type": "string",
+                    "description": "Search term to filter functions by name or docstring. Used when function_name is not provided.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "default": 20,
+                    "minimum": 1,
+                    "maximum": 100,
+                    "description": "Max results in search mode (1-100)",
                 },
             },
-            "required": ["project_slug", "function_name"],
+            "required": ["project_slug"],
         },
     },
     {
         "name": "get_class",
         "description": (
-            "Get complete details about a specific class, struct, or model: "
-            "full source code, base classes/interfaces, fields, methods, "
-            "and file location. Especially useful for understanding data models "
-            "and their relationships."
+            "Look up classes, structs, or models in the project. Two modes:\n"
+            "1. Exact lookup (provide class_name): returns full source code, "
+            "base classes/interfaces, fields, methods, and file location. "
+            "Especially useful for understanding data models and their relationships.\n"
+            "2. Search (provide search term or leave both empty): returns a list of "
+            "matching classes filtered by name, description, docstring, or base class."
         ),
         "inputSchema": {
             "type": "object",
@@ -82,10 +98,21 @@ TOOLS = [
                 },
                 "class_name": {
                     "type": "string",
-                    "description": "Exact class/struct name (e.g., 'User', 'PaymentService')",
+                    "description": "Exact class/struct name for full context lookup (e.g., 'User', 'PaymentService'). Omit to use search mode.",
+                },
+                "search": {
+                    "type": "string",
+                    "description": "Search term to filter classes by name, docstring, or base class. Used when class_name is not provided.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "default": 20,
+                    "minimum": 1,
+                    "maximum": 100,
+                    "description": "Max results in search mode (1-100)",
                 },
             },
-            "required": ["project_slug", "class_name"],
+            "required": ["project_slug"],
         },
     },
     {
@@ -182,7 +209,8 @@ TOOLS = [
         "name": "list_files",
         "description": (
             "List all indexed source files in the project with entity counts "
-            "(functions, classes, endpoints per file). Optionally filter by filename. "
+            "(functions, classes, endpoints per file) and AI-generated file summaries "
+            "where available. Optionally filter by filename. "
             "Use this to understand project structure and find specific files."
         ),
         "inputSchema": {
