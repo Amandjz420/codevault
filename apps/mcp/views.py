@@ -373,16 +373,15 @@ class MCPSSEView(View):
         response['X-Accel-Buffering'] = 'no'
         return response
 
-    def post(self, request):
+    async def post(self, request):
         """Accept JSON-RPC POST requests over the SSE channel."""
-        user = _get_auth_user(request)
+        user = await sync_to_async(_get_auth_user)(request)
         if not user:
             return JsonResponse(
                 {"jsonrpc": "2.0", "id": None, "error": {"code": -32001, "message": "Unauthorized"}},
                 status=401,
             )
 
-        # Reuse the HTTP view's dispatch logic
+        # Delegate to the sync HTTP view via sync_to_async
         http_view = MCPHttpView()
-        http_view.request = request
-        return http_view.post(request)
+        return await sync_to_async(http_view.post)(request)
