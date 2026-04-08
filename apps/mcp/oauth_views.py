@@ -55,6 +55,24 @@ class OAuthMetadataView(View):
         })
 
 
+class OAuthProtectedResourceView(View):
+    """
+    GET /.well-known/oauth-protected-resource
+    GET /.well-known/oauth-protected-resource/<path>
+
+    RFC 9728 — OAuth 2.0 Protected Resource Metadata.
+    Required by the MCP Authorization spec so clients can discover the
+    authorization server for this resource without a WWW-Authenticate header.
+    """
+
+    def get(self, request, resource_path=''):
+        base = _base_url(request)
+        return JsonResponse({
+            "resource": base,
+            "authorization_servers": [base],
+        })
+
+
 # ---------------------------------------------------------------------------
 # Dynamic client registration  (RFC 7591)
 # ---------------------------------------------------------------------------

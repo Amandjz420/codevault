@@ -88,4 +88,14 @@ urlpatterns = [
          name='oauth-metadata'),
     path('.well-known/oauth-authorization-server/',
          __import__('apps.mcp.oauth_views', fromlist=['OAuthMetadataView']).OAuthMetadataView.as_view()),
+    # RFC 9728 — Protected Resource Metadata (required by MCP Authorization spec).
+    # Clients hit this to discover which authorization server protects this resource.
+    # Also handle /.well-known/oauth-protected-resource/<resource-path> variant.
+    path('.well-known/oauth-protected-resource',
+         __import__('apps.mcp.oauth_views', fromlist=['OAuthProtectedResourceView']).OAuthProtectedResourceView.as_view(),
+         name='oauth-protected-resource'),
+    path('.well-known/oauth-protected-resource/',
+         __import__('apps.mcp.oauth_views', fromlist=['OAuthProtectedResourceView']).OAuthProtectedResourceView.as_view()),
+    path('.well-known/oauth-protected-resource/<path:resource_path>',
+         __import__('apps.mcp.oauth_views', fromlist=['OAuthProtectedResourceView']).OAuthProtectedResourceView.as_view()),
 ]

@@ -2,9 +2,10 @@
 Django views for MCP over HTTP+SSE.
 Supports remote MCP connections from clients like Cursor.
 """
+import asyncio
 import json
 import logging
-import time
+from asgiref.sync import sync_to_async
 from django.http import StreamingHttpResponse, JsonResponse
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
@@ -330,35 +331,39 @@ class MCPHttpView(View):
 @method_decorator(csrf_exempt, name='dispatch')
 class MCPSSEView(View):
     """
-    GET  /mcp/sse/ — SSE stream for MCP initialization
-    POST /mcp/sse/ — Post JSON-RPC messages (Cursor-style)
+    GET  /mcp/sse/ — SSE stream (MCP 2024-11-05 transport)
+    POST /mcp/sse/ — JSON-RPC messages
 
-    Implements a basic SSE-based MCP transport compatible with Cursor.
+    The GET stream sends an `endpoint` event first (required by the MCP spec)
+    so clients know where to POST JSON-RPC requests.  The generator is async
+    to avoid blocking the ASGI event loop (gunicorn + uvicorn workers).
     """
 
-    def get(self, request):
-        """Open SSE connection and send server capabilities."""
-        user = _get_auth_user(request)
+    async def get(self, request):
+        """Open SSE connection. Sends `endpoint` event then periodic pings."""
+        user = await sync_to_async(_get_auth_user)(request)
         if not user:
-            return JsonResponse({'error': 'Unauthorized'}, status=401)
+            scheme = 'https' if request.is_secure() else 'http'
+            base_url = f"{scheme}://{request.get_host()}"
+            response = JsonResponse({'error': 'Unauthorized'}, status=401)
+            response['WWW-Authenticate'] = (
+                f'Bearer realm="{base_url}", '
+                f'resource_metadata="{base_url}/.well-known/oauth-protected-resource"'
+            )
+            return response
 
-        def event_stream():
-            # Send initial server info as SSE event
-            init_msg = json.dumps({
-                "jsonrpc": "2.0",
-                "method": "server/ready",
-                "params": {
-                    "protocolVersion": PROTOCOL_VERSION,
-                    "serverInfo": SERVER_INFO,
-                    "capabilities": {"tools": {}},
-                },
-            })
-            yield f"data: {init_msg}\n\n"
+        # Build the absolute POST URL the client should use for JSON-RPC
+        scheme = 'https' if request.is_secure() else 'http'
+        post_url = f"{scheme}://{request.get_host()}/mcp/sse/"
 
-            # Keep connection alive
+        async def event_stream():
+            # MCP 2024-11-05 SSE transport: first event MUST be `endpoint`
+            yield f"event: endpoint\ndata: {post_url}\n\n"
+
+            # Keep the stream alive with periodic pings
             while True:
-                time.sleep(15)
-                yield "data: {\"jsonrpc\":\"2.0\",\"method\":\"ping\"}\n\n"
+                await asyncio.sleep(15)
+                yield ': ping\n\n'
 
         response = StreamingHttpResponse(
             event_stream(),
