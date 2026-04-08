@@ -34,6 +34,9 @@ htmlcov/
 *.swp
 *.swo
 
+# Claude IDE
+.claude/
+
 # OS
 .DS_Store
 

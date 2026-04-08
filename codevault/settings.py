@@ -10,6 +10,10 @@ SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-dev-key-change-in-pro
 DEBUG = os.environ.get('DEBUG', 'True') == 'True'
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
 
+# Trust the X-Forwarded-Proto header set by Railway (and most reverse proxies)
+# so that request.is_secure() returns True and all generated URLs use https://.
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
 DJANGO_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
