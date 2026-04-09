@@ -134,37 +134,60 @@ def github_webhook(request, project_slug: str):
     # ------------------------------------------------------------------ #
     #  Queue ingestion task                                                #
     # ------------------------------------------------------------------ #
-    task = run_webhook_ingestion.delay(
-        project.id,
-        changed_supported,
-        deleted_supported,
-        commit_sha,
-    )
+    try:
+        task = run_webhook_ingestion.delay(
+            project.id,
+            changed_supported,
+            deleted_supported,
+            commit_sha,
+        )
+        task_id = str(task.id)
+        event_status = 'queued'
+    except Exception as broker_exc:
+        # Redis/broker unreachable — log clearly and return 503 so GitHub
+        # will retry the delivery later
+        logger.error(
+            f"[Webhook] Failed to queue ingestion task for {project.name} "
+            f"branch={pushed_branch} commit={commit_sha[:8]}: {broker_exc}"
+        )
+        return JsonResponse(
+            {
+                'error': 'Celery broker unreachable — task could not be queued.',
+                'detail': str(broker_exc),
+                'branch': pushed_branch,
+                'commit': commit_sha[:8],
+            },
+            status=503,
+        )
 
     # ------------------------------------------------------------------ #
     #  Persist webhook event log                                           #
     # ------------------------------------------------------------------ #
-    WebhookEvent.objects.create(
-        project=project,
-        branch=pushed_branch,
-        commit_sha=commit_sha,
-        commit_message=commit_message[:500],
-        pusher=pusher,
-        changed_files=changed_supported,
-        deleted_files=deleted_supported,
-        status='queued',
-        celery_task_id=str(task.id),
-    )
+    try:
+        WebhookEvent.objects.create(
+            project=project,
+            branch=pushed_branch,
+            commit_sha=commit_sha,
+            commit_message=commit_message[:500],
+            pusher=pusher,
+            changed_files=changed_supported,
+            deleted_files=deleted_supported,
+            status=event_status,
+            celery_task_id=task_id,
+        )
+    except Exception as db_exc:
+        # Log but don't fail — task is already queued, event log is secondary
+        logger.error(f"[Webhook] Could not save WebhookEvent for {project.name}: {db_exc}")
 
     logger.info(
         f"[Webhook] Queued ingestion for {project.name} "
-        f"branch={pushed_branch} commit={commit_sha[:8]} task={task.id} "
+        f"branch={pushed_branch} commit={commit_sha[:8]} task={task_id} "
         f"changed={len(changed_supported)} deleted={len(deleted_supported)}"
     )
 
     return JsonResponse({
         'message': 'Ingestion queued.',
-        'task_id': str(task.id),
+        'task_id': task_id,
         'branch': pushed_branch,
         'commit': commit_sha[:8],
         'changed_files': len(changed_supported),
