@@ -3,6 +3,8 @@
 > This file provides context for AI assistants working on this codebase.
 > It is read by Claude Code, Cursor, Copilot, and other AI-powered development tools.
 
+Testing the github webhook integration
+
 ## Project Overview
 
 CodeVault is a **Codebase Intelligence System** that parses source code projects, builds a knowledge graph (Neo4j) + vector store (ChromaDB), and lets you query your codebase via REST API or MCP server. It supports Python, JavaScript/TypeScript, Go, Rust, and Java.
