@@ -1,3 +1,10 @@
+import warnings
+warnings.filterwarnings(
+    'ignore',
+    message='StreamingHttpResponse must consume synchronous iterators',
+    category=Warning,
+)
+
 import os
 from pathlib import Path
 from datetime import timedelta
