@@ -1,5 +1,18 @@
 from django.contrib import admin
-from .models import IndexedFile, IngestionJob, QueryLog, ProjectMemory
+from .models import IndexedFile, IngestionJob, QueryLog, ProjectMemory, EntityDescription
+
+
+@admin.register(EntityDescription)
+class EntityDescriptionAdmin(admin.ModelAdmin):
+    list_display = ('entity_type', 'entity_name', 'file_path', 'project', 'updated_at')
+    list_filter = ('project', 'entity_type')
+    search_fields = ('entity_name', 'file_path', 'description', 'project__name')
+    readonly_fields = ('updated_at',)
+    ordering = ['project', 'file_path', 'entity_type']
+
+    def description_preview(self, obj):
+        return obj.description[:120] + '…' if len(obj.description) > 120 else obj.description or '(empty)'
+    description_preview.short_description = 'Description preview'
 
 
 @admin.register(IndexedFile)
