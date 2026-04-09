@@ -28,6 +28,7 @@ from .serializers import (
     QueryLogSerializer,
     TriggerIngestionSerializer,
     GraphStatsSerializer,
+    WebhookEventSerializer,
 )
 
 
@@ -588,6 +589,37 @@ class QueryLogListView(APIView):
             return err
         logs = QueryLog.objects.filter(project=project).order_by('-created_at')[:100]
         return Response(QueryLogSerializer(logs, many=True).data)
+
+
+# ------------------------------------------------------------------ #
+#  Webhook Events                                                      #
+# ------------------------------------------------------------------ #
+
+class WebhookEventListView(APIView):
+    """
+    GET /api/projects/<slug>/webhook-events/
+    Returns all webhook events received for the project's watched branch,
+    ordered newest first. Supports optional ?branch= filter.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, slug):
+        project, err = get_project_or_403(slug, request.user)
+        if err:
+            return err
+
+        from apps.intelligence.models import WebhookEvent
+        qs = WebhookEvent.objects.filter(project=project)
+
+        branch_filter = request.query_params.get('branch')
+        if branch_filter:
+            qs = qs.filter(branch=branch_filter)
+
+        return Response({
+            'watched_branch': project.webhook_branch or project.github_default_branch or 'main',
+            'count': qs.count(),
+            'results': WebhookEventSerializer(qs, many=True).data,
+        })
 
 
 # ------------------------------------------------------------------ #

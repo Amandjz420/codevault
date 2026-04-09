@@ -170,6 +170,40 @@ class QueryLog(models.Model):
         return f"{self.project.name}: {self.question[:80]}"
 
 
+class WebhookEvent(models.Model):
+    """Records every incoming GitHub webhook push event matched to the watched branch."""
+
+    STATUS_CHOICES = [
+        ('queued', 'Queued'),
+        ('processed', 'Processed'),
+        ('failed', 'Failed'),
+    ]
+
+    project = models.ForeignKey(
+        'projects.Project',
+        on_delete=models.CASCADE,
+        related_name='webhook_events',
+    )
+    branch = models.CharField(max_length=255)
+    commit_sha = models.CharField(max_length=40, blank=True)
+    commit_message = models.TextField(blank=True)
+    pusher = models.CharField(max_length=255, blank=True)
+    changed_files = models.JSONField(default=list, blank=True)
+    deleted_files = models.JSONField(default=list, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='queued')
+    celery_task_id = models.CharField(max_length=255, blank=True)
+    received_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'intelligence_webhook_event'
+        verbose_name = 'Webhook Event'
+        verbose_name_plural = 'Webhook Events'
+        ordering = ['-received_at']
+
+    def __str__(self):
+        return f"{self.project.name} — {self.branch} — {self.commit_sha[:8] if self.commit_sha else 'n/a'}"
+
+
 class ProjectMemory(models.Model):
     """
     Rolling memory for a project — a continuously-updated summary of what has been

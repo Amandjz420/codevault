@@ -17,6 +17,7 @@ from .views import (
     ListGithubReposView,
     ListGithubRepoBranchesView,
     QueryLogListView,
+    WebhookEventListView,
 )
 from .webhooks import github_webhook
 
@@ -46,10 +47,13 @@ urlpatterns = [
     path('projects/<slug:slug>/ingest/github/', TriggerGithubIngestionView.as_view(), name='project-ingest-github'),
     path('projects/<slug:slug>/jobs/', IngestionJobListView.as_view(), name='project-jobs'),
 
+    # Webhook Events
+    path('projects/<slug:slug>/webhook-events/', WebhookEventListView.as_view(), name='project-webhook-events'),
+
     # GitHub
     path('github/repos/', ListGithubReposView.as_view(), name='github-repos'),
     path('github/repos/<str:owner>/<str:repo>/branches/', ListGithubRepoBranchesView.as_view(), name='github-repo-branches'),
 
-    # Webhooks
+    # Webhooks (inbound from GitHub)
     path('webhooks/github/<slug:project_slug>/', github_webhook, name='github-webhook'),
 ]

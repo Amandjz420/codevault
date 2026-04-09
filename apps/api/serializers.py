@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from apps.intelligence.models import IndexedFile, IngestionJob, QueryLog
+from apps.intelligence.models import IndexedFile, IngestionJob, QueryLog, WebhookEvent
 
 
 class IndexedFileSerializer(serializers.ModelSerializer):
@@ -82,3 +82,14 @@ class GraphStatsSerializer(serializers.Serializer):
     signals = serializers.IntegerField()
     cron_jobs = serializers.IntegerField()
     vector_embeddings = serializers.IntegerField()
+
+
+class WebhookEventSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = WebhookEvent
+        fields = (
+            'id', 'branch', 'commit_sha', 'commit_message',
+            'pusher', 'changed_files', 'deleted_files',
+            'status', 'celery_task_id', 'received_at',
+        )
+        read_only_fields = fields

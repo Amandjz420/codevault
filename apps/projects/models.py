@@ -45,6 +45,11 @@ class Project(models.Model):
         blank=True,
         help_text='HMAC secret for verifying GitHub webhooks',
     )
+    webhook_branch = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text='Branch to watch for webhook-triggered ingestion. Defaults to github_default_branch.',
+    )
     local_path = models.CharField(
         max_length=500,
         blank=True,
